@@ -30,6 +30,10 @@ ros2 run livox_to_pointcloud2 livox_to_pointcloud2_node --ros-args -r /livox_poi
 ```
 
 
+```
+ros2 launch ares_nav2 controller_bringup.launch.py
+```
+
 Nav2の起動
 ```
 ros2 launch ares_nav2 navigation_sim.launch.py 

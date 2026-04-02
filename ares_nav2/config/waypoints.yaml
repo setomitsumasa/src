@@ -1,9 +1,9 @@
 waypoints: # URC2025 GPS Waypoints Starts:38.41910142, -110.782723
-- latitude: 35.5369467    # Debug goal: 10m east
-  longitude: 134.2110470    # ≒ 10m east at lat=0
+- latitude: 0.0    # Debug goal: 10m east
+  longitude: 0.0   # ≒ 10m east at lat=0
   yaw: 0.0
   spiral_search: false
-  marker_id: -1
+  marker_id: 1
   
 - latitude: 35.5371031    # Debug goal: 10m east
   longitude: 134.2110154    # ≒ 10m east at lat=0

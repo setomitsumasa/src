@@ -17,12 +17,20 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int16MultiArray
 import serial
+from serial import SerialException
+import termios
 import time
 
 class XbeeSubscriber(Node):
 
     def __init__(self):
         super().__init__('uart_communication')
+        self.port = '/dev/ttyUSB1'
+        self.baudrate = 115200
+        self.reconnect_period_sec = 1.0
+        self._last_reconnect_log_ok = False
+        self._last_disconnect_log_sent = False
+
         self.subscription = self.create_subscription(
             Int16MultiArray,
             'uart_command',
@@ -31,18 +39,87 @@ class XbeeSubscriber(Node):
         self.subscription
 
         #****** Serial setting begin *****
-        try:
-            self.ser = serial.Serial('/dev/ttyUSB1', 115200, timeout=0.01, write_timeout=0.01)
-            self.get_logger().info('Serial setting Succeeded!! Port: /dev/ttyUSB1, Baudrate: 115200')
-
-        except serial.SerialException as e:
-            self.get_logger().error(f"Serial setting failed for /dev/ttyUSB1: {e}")
-
-            self.ser = None
+        self.ser = None
+        self.connect_serial()
+        self.health_check_timer = self.create_timer(
+            self.reconnect_period_sec,
+            self.check_and_reconnect
+        )
         #******* Serial setting end ******
+
+    def connect_serial(self) -> bool:
+        """シリアルポートへ接続する。成功時は True を返す。"""
+        self.close_serial()
+
+        try:
+            self.ser = serial.Serial(
+                self.port,
+                self.baudrate,
+                timeout=0.01,
+                write_timeout=0.01
+            )
+            self._last_reconnect_log_ok = True
+            self._last_disconnect_log_sent = False
+            self.get_logger().info(
+                f'Serial connected. Port: {self.port}, Baudrate: {self.baudrate}'
+            )
+            return True
+        except SerialException as e:
+            self.ser = None
+            if self._last_reconnect_log_ok:
+                self.get_logger().warn(
+                    f'Serial connection failed for {self.port}: {e}'
+                )
+                self._last_reconnect_log_ok = False
+            else:
+                self.get_logger().debug(
+                    f'Serial reconnection retry failed for {self.port}: {e}'
+                )
+            return False
+
+    def close_serial(self) -> None:
+        """シリアルポートを安全に閉じる。"""
+        if self.ser is not None:
+            try:
+                if self.ser.is_open:
+                    self.ser.close()
+            except SerialException as e:
+                self.get_logger().debug(f'Failed to close serial port cleanly: {e}')
+        self.ser = None
+
+    def is_serial_healthy(self) -> bool:
+        """シリアルポートが実際に生きているかを軽く確認する。"""
+        if self.ser is None or not self.ser.is_open:
+            return False
+
+        try:
+            _ = self.ser.out_waiting
+            return True
+        except (SerialException, OSError, termios.error) as e:
+            if not self._last_disconnect_log_sent:
+                self.get_logger().warn(
+                    f'Serial port {self.port} became unavailable: {e}'
+                )
+                self._last_disconnect_log_sent = True
+            self.close_serial()
+            return False
+
+    def check_and_reconnect(self) -> None:
+        """定期的に接続状態を確認し、切断時は再接続を試みる。"""
+        if self.is_serial_healthy():
+            return
+
+        self.get_logger().warn(
+            f'Serial port {self.port} is disconnected. Attempting reconnection.'
+        )
+        self.connect_serial()
 
     def listener_callback(self, msg):
         # シリアルポートが正常に開けていない場合は処理しない
+        if not self.is_serial_healthy():
+            self.get_logger().warn('Serial port is not available. Skipping UART send.')
+            return
+
         self.get_logger().debug(f'Received Angle: ID={hex(msg.data[0])}, Data={msg.data[1]}') # Rover Angle
         # self.get_logger().debug(f'Received Speed: ID={hex(msg.data[2])}, Data={msg.data[3]}') # Rover Speed
         #****** Serial export begin ******
@@ -57,8 +134,9 @@ class XbeeSubscriber(Node):
             time.sleep(0.001)
             self.ser.write(speed_str.encode('utf-8'))
             time.sleep(0.001)
-        except serial.SerialException as e:
-            self.get_logger().error(f"Failed to send Serial command")
+        except (SerialException, OSError, termios.error) as e:
+            self.get_logger().error(f"Failed to send Serial command: {e}")
+            self.close_serial()
         except Exception as e:
             self.get_logger().error(f"An unexpected error occurred in listener_callback: {e}")
         #****** Serial export end *******
@@ -66,20 +144,16 @@ class XbeeSubscriber(Node):
 def main(args=None):
     rclpy.init(args=args)
     uart_communication = XbeeSubscriber()
-    if uart_communication.ser is None:
-        uart_communication.get_logger().error("Failed to initialize serial port. Shutting down.")
-    else:
-        try:
-            rclpy.spin(uart_communication)
-        except KeyboardInterrupt:
-            uart_communication.get_logger().info('KeyboardInterrupt, shutting down.')
-        finally:
-            # ノードが終了する前にシリアルポートを閉じる
-            if uart_communication.ser and uart_communication.ser.is_open:
-                uart_communication.get_logger().info('Closing serial port.')
-                uart_communication.ser.close()
-            # Destroy the node explicitly
-            uart_communication.destroy_node()
+    try:
+        rclpy.spin(uart_communication)
+    except KeyboardInterrupt:
+        uart_communication.get_logger().info('KeyboardInterrupt, shutting down.')
+    finally:
+        if uart_communication.ser and uart_communication.ser.is_open:
+            uart_communication.get_logger().info('Closing serial port.')
+        uart_communication.close_serial()
+        uart_communication.destroy_node()
+        if rclpy.ok():
             rclpy.shutdown()
 
 if __name__ == '__main__':

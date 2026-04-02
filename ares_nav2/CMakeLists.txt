@@ -39,6 +39,7 @@ ament_target_dependencies(ares_nav2
         nav2_msgs
         sensor_msgs
         ament_index_cpp
+        std_msgs
 )
 target_link_libraries(ares_nav2 yaml-cpp)
 
@@ -61,6 +62,7 @@ ament_target_dependencies(aruco_nav2_goal_node
   rclcpp_action
   geometry_msgs
   nav2_msgs
+  std_msgs
   tf2_ros
   tf2_geometry_msgs
   rclcpp_components

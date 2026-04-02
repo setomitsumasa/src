@@ -11,6 +11,8 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
 #include <vector>
 #include <string>
@@ -59,8 +61,10 @@ private:
     // ROS2 interfaces
     rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr marker_detected_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr aruco_goal_reached_sub_;
     rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
     rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr uart_command_pub_;
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr aruco_target_marker_pub_;
 
     // Waypoint management/state
     std::vector<GPSWaypoint> waypoints_;
@@ -69,6 +73,8 @@ private:
     double ref_longitude_{0.0};
     bool gps_redy_{false};
     double hold_time_sec_{3.0};
+    bool waiting_for_aruco_goal_{false};
+    bool aruco_target_active_{false};
 
     // Spiral search parameters
     bool spiral_search_active_{false};
@@ -83,11 +89,14 @@ private:
     // Callbacks
     void onGpsFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
     void onMarkerDetected(const std_msgs::msg::Float32::SharedPtr msg);
+    void onArucoGoalReached(const std_msgs::msg::Bool::SharedPtr msg);
     void sendNextGoal();
     void startSpiralSearch();
     bool shouldStartSpiralSearch() const;
     void cancelCurrentGoal();
     void interruptSpiralSearch();
+    void activateArucoTargetForCurrentWaypoint();
+    void deactivateArucoTarget();
 
     // Utility functions
     void onGoalResponse(std::shared_future<GoalHandleNavigateToPose::SharedPtr> future);

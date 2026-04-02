@@ -10,6 +10,9 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -33,12 +36,18 @@ private:
   void sendGoal(const geometry_msgs::msg::PoseStamped & pose);
   void onGoalResponse(GoalHandleNavigateToPose::SharedPtr handle);
   void onResult(const GoalHandleNavigateToPose::WrappedResult & result);
+  void onTargetMarkerId(const std_msgs::msg::Int32::SharedPtr msg);
+  void onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg);
+  void resetTrackingState();
 
   // ROS
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_marker_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr detected_marker_sub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
 
   void cancelCurrentGoal();
 
@@ -51,6 +60,9 @@ private:
   double goal_tolerance_;
   bool send_only_once_;
   std::string navigate_to_pose_action_;
+  std::string target_marker_topic_;
+  std::string detected_marker_topic_;
+  std::string goal_reached_topic_;
 
   // State
   std::mutex goal_mutex_;
@@ -60,6 +72,9 @@ private:
   double last_goal_x_{0.0};
   double last_goal_y_{0.0};
   bool has_last_goal_{false};
+  int target_marker_id_{-1};
+  int detected_marker_id_{-1};
+  bool has_detected_marker_id_{false};
 };
 
 }  // namespace ares_nav2

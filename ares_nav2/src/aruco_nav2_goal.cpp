@@ -5,6 +5,7 @@
 #include "ares_nav2/aruco_nav2_goal.hpp"
 #include <tf2_ros/create_timer_ros.h>
 #include <cmath>
+#include <std_msgs/msg/bool.hpp>
 
 namespace ares_nav2
 {
@@ -19,6 +20,9 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
   declare_parameter<bool>("send_only_once", false);
   declare_parameter<std::string>("navigate_to_pose_action", "navigate_to_pose");
   declare_parameter<double>("timer_period_sec", 0.2);
+  declare_parameter<std::string>("target_marker_topic", "/aruco/target_marker_id");
+  declare_parameter<std::string>("detected_marker_topic", "/aruco/id");
+  declare_parameter<std::string>("goal_reached_topic", "/aruco/goal_reached");
 
   target_frame_ = get_parameter("target_frame").get_value<std::string>();
   aruco_frame_ = get_parameter("aruco_frame").get_value<std::string>();
@@ -26,6 +30,9 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
   goal_update_threshold_ = get_parameter("goal_update_threshold").get_value<double>();
   send_only_once_ = get_parameter("send_only_once").get_value<bool>();
   navigate_to_pose_action_ = get_parameter("navigate_to_pose_action").get_value<std::string>();
+  target_marker_topic_ = get_parameter("target_marker_topic").get_value<std::string>();
+  detected_marker_topic_ = get_parameter("detected_marker_topic").get_value<std::string>();
+  goal_reached_topic_ = get_parameter("goal_reached_topic").get_value<std::string>();
   const double timer_period = get_parameter("timer_period_sec").get_value<double>();
 
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
@@ -35,6 +42,13 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   action_client_ = rclcpp_action::create_client<NavigateToPose>(this, navigate_to_pose_action_);
+  target_marker_sub_ = create_subscription<std_msgs::msg::Int32>(
+    target_marker_topic_, 10,
+    std::bind(&ArucoNav2Goal::onTargetMarkerId, this, std::placeholders::_1));
+  detected_marker_sub_ = create_subscription<std_msgs::msg::Float32>(
+    detected_marker_topic_, 10,
+    std::bind(&ArucoNav2Goal::onDetectedMarkerId, this, std::placeholders::_1));
+  goal_reached_pub_ = create_publisher<std_msgs::msg::Bool>(goal_reached_topic_, 10);
 
   timer_ = create_wall_timer(
     std::chrono::duration<double>(timer_period),
@@ -45,8 +59,48 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
     target_frame_.c_str(), aruco_frame_.c_str(), goal_send_interval_sec_, goal_update_threshold_, send_only_once_);
 }
 
+void ArucoNav2Goal::resetTrackingState()
+{
+  cancelCurrentGoal();
+  goal_sent_once_ = false;
+  last_goal_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  last_goal_x_ = 0.0;
+  last_goal_y_ = 0.0;
+  has_last_goal_ = false;
+}
+
+void ArucoNav2Goal::onTargetMarkerId(const std_msgs::msg::Int32::SharedPtr msg)
+{
+  if (target_marker_id_ == msg->data) {
+    return;
+  }
+
+  target_marker_id_ = msg->data;
+  resetTrackingState();
+
+  if (target_marker_id_ < 0) {
+    RCLCPP_INFO(get_logger(), "ArUco target disabled");
+  } else {
+    RCLCPP_INFO(get_logger(), "Tracking ArUco marker_id=%d", target_marker_id_);
+  }
+}
+
+void ArucoNav2Goal::onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg)
+{
+  detected_marker_id_ = static_cast<int>(std::lround(msg->data));
+  has_detected_marker_id_ = true;
+}
+
 void ArucoNav2Goal::onTimer()
 {
+  if (target_marker_id_ < 0) {
+    return;
+  }
+
+  if (!has_detected_marker_id_ || detected_marker_id_ != target_marker_id_) {
+    return;
+  }
+
   geometry_msgs::msg::TransformStamped transform;
   try {
     transform = tf_buffer_->lookupTransform(
@@ -145,6 +199,13 @@ void ArucoNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & res
   switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:
       RCLCPP_INFO(get_logger(), "Reached ArUco goal");
+      {
+        std_msgs::msg::Bool msg;
+        msg.data = true;
+        goal_reached_pub_->publish(msg);
+      }
+      target_marker_id_ = -1;
+      resetTrackingState();
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_WARN(get_logger(), "Goal aborted");
