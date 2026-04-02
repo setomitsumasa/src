@@ -53,7 +53,7 @@ class SerialSubscriber(Node):
 
         self.connect_serial()
         # 高頻度ポーリングでバッファを溜めない（1ms = 1000Hz）
-        self.timer = self.create_timer(0.001, self.read_and_publish)
+        self.timer = self.create_timer(0.01, self.read_and_publish)
         # 定期的に接続状態を確認し、切断時は再接続する
         self.health_check_timer = self.create_timer(
             self.reconnect_period_sec,

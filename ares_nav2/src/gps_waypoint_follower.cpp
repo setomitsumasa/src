@@ -42,7 +42,8 @@ namespace ares_nav2 {
             "/yolo/goal_reached", 10,
             std::bind(&GPSWaypointFollower::onYoloGoalReached, this, std::placeholders::_1));
         uart_command_pub_ = this->create_publisher<std_msgs::msg::Int16MultiArray>("uart_command", 10);
-        aruco_enabled_pub_ = this->create_publisher<std_msgs::msg::Bool>("/aruco/enabled", 10);
+        aruco_enabled_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/aruco/enabled", rclcpp::QoS(1).reliable().transient_local());
         aruco_target_marker_pub_ = this->create_publisher<std_msgs::msg::Int32>("/aruco/target_marker_id", 10);
         yolo_target_frame_pub_ = this->create_publisher<std_msgs::msg::String>("/yolo/target_frame", 10);
         deactivateArucoTarget();

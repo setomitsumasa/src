@@ -38,6 +38,7 @@
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "image_transport/camera_common.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float32.hpp"
 
 #include "aruco_opencv_msgs/msg/aruco_detection.hpp"
@@ -67,6 +68,8 @@ class ArucoTracker : public rclcpp_lifecycle::LifecycleNode
   int image_sub_qos_depth_;
   std::string image_transport_;
   std::string board_descriptions_path_;
+  bool enabled_by_default_{false};
+  bool processing_enabled_{false};
 
   // ROS
   OnSetParametersCallbackHandle::SharedPtr on_set_parameter_callback_handle_;
@@ -74,6 +77,7 @@ class ArucoTracker : public rclcpp_lifecycle::LifecycleNode
     detection_pub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr debug_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float32>::SharedPtr id_pub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr enabled_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_img_sub_;
@@ -183,6 +187,9 @@ public:
     cam_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
       cam_info_topic, 1,
       std::bind(&ArucoTracker::callback_camera_info, this, std::placeholders::_1));
+    enabled_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/aruco/enabled", rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&ArucoTracker::callback_enabled, this, std::placeholders::_1));
 
     rmw_qos_profile_t image_sub_qos = rmw_qos_profile_default;
     image_sub_qos.reliability =
@@ -210,6 +217,7 @@ public:
     RCLCPP_INFO(get_logger(), "Deactivating");
 
     on_set_parameter_callback_handle_.reset();
+    enabled_sub_.reset();
     cam_info_sub_.reset();
     img_sub_.reset();
     compressed_img_sub_.reset();
@@ -242,6 +250,7 @@ public:
     RCLCPP_INFO(get_logger(), "Shutting down");
 
     on_set_parameter_callback_handle_.reset();
+    enabled_sub_.reset();
     cam_info_sub_.reset();
     img_sub_.reset();
     compressed_img_sub_.reset();
@@ -276,6 +285,7 @@ protected:
     declare_param(*this, "publish_tf", true, true);
     declare_param(*this, "marker_size", 0.20, true);
     declare_param(*this, "board_descriptions_path", "");
+    declare_param(*this, "enabled_by_default", false);
 
     declare_aruco_parameters(*this);
   }
@@ -313,9 +323,26 @@ protected:
     get_param(*this, "marker_size", marker_size_, "Marker size: ");
 
     get_parameter("board_descriptions_path", board_descriptions_path_);
+    get_parameter("enabled_by_default", enabled_by_default_);
+    processing_enabled_ = enabled_by_default_;
+    RCLCPP_INFO_STREAM(
+      get_logger(), "Aruco processing is initially " <<
+      (processing_enabled_ ? "enabled" : "disabled"));
 
     RCLCPP_INFO(get_logger(), "Aruco Parameters:");
     retrieve_aruco_parameters(*this, detector_parameters_, true);
+  }
+
+  void callback_enabled(const std_msgs::msg::Bool::ConstSharedPtr msg)
+  {
+    if (processing_enabled_ == msg->data) {
+      return;
+    }
+
+    processing_enabled_ = msg->data;
+    RCLCPP_INFO_STREAM(
+      get_logger(), "Aruco processing " <<
+      (processing_enabled_ ? "enabled" : "disabled"));
   }
 
   rcl_interfaces::msg::SetParametersResult callback_on_set_parameters(
@@ -504,6 +531,10 @@ protected:
 
     if (!cam_info_retrieved_) {
       // RCLCPP_DEBUG(get_logger(), "Camera info not retrieved yet. Ignoring image...");
+      return false;
+    }
+
+    if (!processing_enabled_) {
       return false;
     }
 

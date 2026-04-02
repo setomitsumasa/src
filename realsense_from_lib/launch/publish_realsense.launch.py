@@ -16,7 +16,7 @@ def generate_launch_description():
                     'color_height': 480,
                     'depth_width': 640,
                     'depth_height': 480,
-                    'fps': 30,
+                    'fps': 15,
                     'color_topic': 'camera/color/image_raw',
                     'depth_topic': 'camera/depth/image_raw',
                 }
