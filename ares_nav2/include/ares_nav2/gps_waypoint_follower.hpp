@@ -1,0 +1,101 @@
+//
+// Created by karisora on 2025/09/10.
+//
+
+#ifndef ARES_NAV2_GPS_WAYPOINT_FOLLOWER_HPP
+#define ARES_NAV2_GPS_WAYPOINT_FOLLOWER_HPP
+
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <nav2_msgs/action/navigate_to_pose.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/int16_multi_array.hpp>
+#include <vector>
+#include <string>
+#include <optional>
+#include <mutex>
+
+
+namespace ares_nav2
+{
+
+struct GPSWaypoint
+{
+    double latitude{};
+    double longitude{};
+    double yaw{}; // in radians
+    bool spiral_search{false};
+    int marker_id{-1}; // marker ID to detect during spiral search (-1 means no marker)
+};
+
+struct LocalPose2D
+{
+    double x{};
+    double y{};
+    double yaw{}; // in radians
+};
+
+struct SpiralParams {
+    double r0{1.0};
+    double dr{1.0};
+    double dtheta_rad{M_PI / 2.0};
+    int n_spiral{7};
+};
+
+class GPSWaypointFollower : public rclcpp::Node
+{
+public:
+    using NavigateToPose = nav2_msgs::action::NavigateToPose;
+    using GoalHandleNavigateToPose = rclcpp_action::ClientGoalHandle<NavigateToPose>;
+
+    explicit GPSWaypointFollower(
+        const std::string& waypoint_yaml_path,
+        const SpiralParams& spiral_params = {});
+
+
+private:
+    // ROS2 interfaces
+    rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr marker_detected_sub_;
+    rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
+    rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr uart_command_pub_;
+
+    // Waypoint management/state
+    std::vector<GPSWaypoint> waypoints_;
+    size_t goal_index_{0};
+    double ref_latitude_{0.0};
+    double ref_longitude_{0.0};
+    bool gps_redy_{false};
+    double hold_time_sec_{3.0};
+
+    // Spiral search parameters
+    bool spiral_search_active_{false};
+    SpiralParams spiral_params_;
+    std::vector<LocalPose2D> spiral_waypoints_;
+    size_t spiral_index_{0};
+
+    // Goal handle management
+    std::mutex goal_handle_mutex_;
+    GoalHandleNavigateToPose::SharedPtr current_goal_handle_;
+
+    // Callbacks
+    void onGpsFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+    void onMarkerDetected(const std_msgs::msg::Float32::SharedPtr msg);
+    void sendNextGoal();
+    void startSpiralSearch();
+    bool shouldStartSpiralSearch() const;
+    void cancelCurrentGoal();
+    void interruptSpiralSearch();
+
+    // Utility functions
+    void onGoalResponse(std::shared_future<GoalHandleNavigateToPose::SharedPtr> future);
+    void onResult(const GoalHandleNavigateToPose::WrappedResult& result);
+
+    // helpers
+    geometry_msgs::msg::PoseStamped makePoseStamped(double x, double y, double yaw) const;
+};
+} // namespace ares_nav2
+
+#endif //ARES_NAV2_GPS_WAYPOINT_FOLLOWER_HPP

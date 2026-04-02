@@ -1,0 +1,7 @@
+# Setting of the sensor input/output configuration
+sensor:
+  imu:
+    topic: "/imu/data" # Topic to publish IMU data
+
+  gps:
+      topic: "/gps/fix" # Topic to publish GPS data

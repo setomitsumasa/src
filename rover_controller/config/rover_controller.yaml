@@ -1,0 +1,7 @@
+# rover_controller パラメータ例 (ROS2 Humble)
+rover_controller_node:
+  ros__parameters:
+    # cmd_vel タイムアウト [秒]
+    cmd_vel_timeout: 1.0
+    # ステータス publish 周期 [Hz]
+    status_rate: 2.0

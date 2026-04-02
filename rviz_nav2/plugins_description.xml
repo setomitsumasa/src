@@ -1,0 +1,10 @@
+<library path="rviz_nav2">
+    <class name="rviz_nav2/ArucoIdDisplay"
+           type="rviz_nav2::ArucoIdDisplay"
+           base_class_type="rviz_common::Panel">
+        <description>
+            Panel plugin for showing Float32 values from /aruco/id topic. Displays "Detect" when receiving messages, "None" when not detected.
+        </description>
+    </class>
+</library>
+

@@ -1,0 +1,62 @@
+waypoints: # URC2025 GPS Waypoints Starts:38.41910142, -110.782723
+- latitude: 35.5369467    # Debug goal: 10m east
+  longitude: 134.2110470    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1
+  
+- latitude: 35.5371031    # Debug goal: 10m east
+  longitude: 134.2110154    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+
+- latitude: 35.5372668    # Debug goal: 10m east
+  longitude: 134.2110087    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5371815    # Debug goal: 10m east
+  longitude: 134.2109030    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5370308    # Debug goal: 10m east
+  longitude: 134.2108990    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5373086    # Debug goal: 10m east
+  longitude: 134.2111789    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5372979    # Debug goal: 10m east
+  longitude: 134.2112599    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5371567    # Debug goal: 10m east
+  longitude: 134.2112150    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5370031    # Debug goal: 10m east
+  longitude: 134.2112897    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+  
+- latitude: 35.5369275   # Debug goal: 10m east
+  longitude: 134.2113593    # ≒ 10m east at lat=0
+  yaw: 0.0
+  spiral_search: false
+  marker_id: -1 
+
+
