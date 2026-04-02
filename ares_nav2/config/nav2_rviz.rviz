@@ -7,6 +7,7 @@ Panels:
         - /Global Options1
         - /TF1/Frames1
         - /TF1/Tree1
+        - /3D_RGB_Camera1
       Splitter Ratio: 0.5833333134651184
     Tree Height: 140
   - Class: rviz_common/Selection
@@ -93,6 +94,8 @@ Visualization Manager:
           Value: true
         imu_link:
           Value: true
+        livox_frame:
+          Value: true
         map:
           Value: true
         odom:
@@ -118,6 +121,8 @@ Visualization Manager:
               gps_link:
                 {}
               imu_link:
+                {}
+              livox_frame:
                 {}
             utm:
               {}
@@ -475,7 +480,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /camera/camera/color/image_raw
+            Value: /camera/color/image_raw
           Value: true
       Enabled: true
       Name: 3D_RGB_Camera
@@ -628,10 +633,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.32479679584503174
+      Pitch: 0.49479663372039795
       Target Frame: base_link
       Value: ThirdPersonFollower (rviz_default_plugins)
-      Yaw: 3.020569324493408
+      Yaw: 2.8055672645568848
     Saved: ~
 Window Geometry:
   ArucoIdDisplay:

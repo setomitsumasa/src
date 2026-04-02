@@ -14,6 +14,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <vector>
 #include <string>
 #include <optional>
@@ -29,7 +30,9 @@ struct GPSWaypoint
     double longitude{};
     double yaw{}; // in radians
     bool spiral_search{false};
+    std::string aruco{"disable"}; // disable | enable
     int marker_id{-1}; // marker ID to detect during spiral search (-1 means no marker)
+    std::string yolo{"disable"}; // disable | bottle | mallet ...
 };
 
 struct LocalPose2D
@@ -62,9 +65,12 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr marker_detected_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr aruco_goal_reached_sub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr yolo_goal_reached_sub_;
     rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
     rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr uart_command_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr aruco_enabled_pub_;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr aruco_target_marker_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr yolo_target_frame_pub_;
 
     // Waypoint management/state
     std::vector<GPSWaypoint> waypoints_;
@@ -74,7 +80,9 @@ private:
     bool gps_redy_{false};
     double hold_time_sec_{3.0};
     bool waiting_for_aruco_goal_{false};
+    bool waiting_for_yolo_goal_{false};
     bool aruco_target_active_{false};
+    bool yolo_target_active_{false};
 
     // Spiral search parameters
     bool spiral_search_active_{false};
@@ -90,6 +98,7 @@ private:
     void onGpsFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
     void onMarkerDetected(const std_msgs::msg::Float32::SharedPtr msg);
     void onArucoGoalReached(const std_msgs::msg::Bool::SharedPtr msg);
+    void onYoloGoalReached(const std_msgs::msg::Bool::SharedPtr msg);
     void sendNextGoal();
     void startSpiralSearch();
     bool shouldStartSpiralSearch() const;
@@ -97,6 +106,10 @@ private:
     void interruptSpiralSearch();
     void activateArucoTargetForCurrentWaypoint();
     void deactivateArucoTarget();
+    bool currentWaypointHasArucoTarget() const;
+    void activateYoloTargetForCurrentWaypoint();
+    void deactivateYoloTarget();
+    bool currentWaypointHasYoloTarget() const;
 
     // Utility functions
     void onGoalResponse(std::shared_future<GoalHandleNavigateToPose::SharedPtr> future);

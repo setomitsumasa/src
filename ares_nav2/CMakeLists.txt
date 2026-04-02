@@ -68,6 +68,21 @@ ament_target_dependencies(aruco_nav2_goal_node
   rclcpp_components
 )
 
+add_executable(yolo_tf_nav2_goal_node
+  src/yolo_tf_nav2_goal_main.cpp
+  src/yolo_tf_nav2_goal.cpp
+)
+target_include_directories(yolo_tf_nav2_goal_node PRIVATE include)
+target_compile_features(yolo_tf_nav2_goal_node PUBLIC cxx_std_17)
+ament_target_dependencies(yolo_tf_nav2_goal_node
+  rclcpp
+  rclcpp_action
+  geometry_msgs
+  nav2_msgs
+  std_msgs
+  tf2_ros
+)
+
 
 # Custom BT nodes library
 add_library(ares_nav2_bt_nodes SHARED
@@ -96,6 +111,7 @@ install(TARGETS
         ares_nav2
         gps_waypoint_follower_node
         aruco_nav2_goal_node
+        yolo_tf_nav2_goal_node
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION lib/${PROJECT_NAME}

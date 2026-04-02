@@ -26,12 +26,22 @@ class Make_YOLOtf(Node):
     def __init__(self):
         super().__init__('make_direction')
         self.cv_bridge = CvBridge()  # Image メッセージ変換用
+        self.depth_data = None
+        self.depth_scale = None
+        self.fx = None
+        self.fy = None
 
         # Subscriber の作成
         self.realsense_info_subscription = self.create_subscription(
             String,
             'realsense_info',
             self.realsense_info_callback,
+            qos_profile_sensor_data)
+
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo,
+            'camera/color/camera_info',
+            self.camera_info_callback,
             qos_profile_sensor_data)
         
         self.depth_subscription = self.create_subscription(
@@ -95,6 +105,10 @@ class Make_YOLOtf(Node):
         self.fx = self.realsense_info['fx']
         self.fy = self.realsense_info['fy']
 
+    def camera_info_callback(self, data):
+        self.fx = data.k[0]
+        self.fy = data.k[4]
+
 
 
     # 深度データを取得するcallback関数
@@ -107,6 +121,17 @@ class Make_YOLOtf(Node):
     def bgr_callback(self, raw_bgr_data):
         # BGR 形式の画像データを OpenCV 形式に変換
         self.bgr_data = self.cv_bridge.imgmsg_to_cv2(raw_bgr_data, desired_encoding='bgr8')
+
+        if self.depth_data is None:
+            self.get_logger().info('Depth image has not been received yet')
+            return
+
+        if self.depth_scale is None or self.fx is None or self.fy is None:
+            self.get_logger().info(
+                f'Camera/depth parameters have not been received yet '
+                f'(depth_scale={self.depth_scale}, fx={self.fx}, fy={self.fy})'
+            )
+            return
 
         highest_confidence_detection =self.detection(self.bgr_data)
         # 検出なしの場合

@@ -17,7 +17,9 @@ namespace ares_nav2 {
             wp.longitude = node["longitude"].as<double>();
             wp.yaw = node["yaw"].as<double>(0.0); // default to 0.0 if not provided
             wp.spiral_search = node["spiral_search"].as<bool>(false); // default to false if not provided
+            wp.aruco = node["aruco"].as<std::string>("disable");
             wp.marker_id = node["marker_id"].as<int>(-1); // default to -1 if not provided
+            wp.yolo = node["yolo"].as<std::string>("disable");
             out.push_back(wp);
         }
         return out;

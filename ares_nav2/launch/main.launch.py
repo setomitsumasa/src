@@ -11,6 +11,9 @@ def generate_launch_description():
             package='ares_nav2',
             executable='gps_waypoint_follower_node',
             name='gps_waypoint_follower'),
+        launch_ros.actions.Node(
+            package='ares_nav2',
+            executable='yolo_tf_nav2_goal_node',
+            name='yolo_tf_nav2_goal'),
   ])
-
 

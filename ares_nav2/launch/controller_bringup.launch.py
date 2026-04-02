@@ -12,7 +12,7 @@ def generate_launch_description():
     ares_sensor_share = get_package_share_directory('ares_sensor')
     rover_controller_share = get_package_share_directory('rover_controller')
     livox_share = get_package_share_directory('livox_ros_driver2')
-    realsense_share = get_package_share_directory('realsense2_camera')
+    realsense_share = get_package_share_directory('realsense_from_lib')
 
     serial_subscriber = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -28,12 +28,8 @@ def generate_launch_description():
 
     realsense = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(realsense_share, 'launch', 'rs_launch.py')
-        ),
-        launch_arguments={
-            'pointcloud.enable': 'true',
-            'publish_tf': 'true',
-        }.items(),
+            os.path.join(realsense_share, 'launch', 'publish_realsense.launch.py')
+        )
     )
 
     sensor_data = IncludeLaunchDescription(
