@@ -18,6 +18,7 @@
 #include <thread>
 #include <cmath>
 #include <sstream>
+#include <tf2/time.h>
 
 using namespace std::chrono_literals;
 
@@ -29,6 +30,8 @@ namespace ares_nav2 {
               action_client_(rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose")),
                 spiral_params_(spiral_params) {
         waypoints_ = load_waypoints(waypoint_yaml_path);
+        tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
         gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
             "gps/fix", 10,
             std::bind(&GPSWaypointFollower::onGpsFix, this, std::placeholders::_1));
@@ -46,6 +49,8 @@ namespace ares_nav2 {
             "/aruco/enabled", rclcpp::QoS(1).reliable().transient_local());
         aruco_target_marker_pub_ = this->create_publisher<std_msgs::msg::Int32>("/aruco/target_marker_id", 10);
         yolo_target_frame_pub_ = this->create_publisher<std_msgs::msg::String>("/yolo/target_frame", 10);
+        spiral_monitor_timer_ = this->create_wall_timer(
+            200ms, std::bind(&GPSWaypointFollower::monitorSpiralTargets, this));
         deactivateArucoTarget();
         deactivateYoloTarget();
         RCLCPP_INFO(this->get_logger(), "Waiting for initial GPS fix...");
@@ -102,6 +107,22 @@ namespace ares_nav2 {
         waiting_for_aruco_goal_ = true;
         activateArucoTargetForCurrentWaypoint();
         RCLCPP_INFO(this->get_logger(), "Spiral search interrupted. Waiting for ArUco approach to finish.");
+    }
+
+    void GPSWaypointFollower::interruptSpiralSearchForYolo() {
+        if (!spiral_search_active_) {
+            return;
+        }
+
+        RCLCPP_INFO(this->get_logger(), "YOLO target TF detected during spiral search. Switching to YOLO approach.");
+        cancelCurrentGoal();
+
+        spiral_search_active_ = false;
+        spiral_index_ = 0;
+        spiral_waypoints_.clear();
+
+        activateYoloTargetForCurrentWaypoint();
+        waiting_for_yolo_goal_ = true;
     }
 
     bool GPSWaypointFollower::currentWaypointHasArucoTarget() const {
@@ -248,6 +269,13 @@ namespace ares_nav2 {
                                 waypoints_[goal_index_].marker_id);
                     return;
                 }
+                if (currentWaypointHasYoloTarget()) {
+                    activateYoloTargetForCurrentWaypoint();
+                    waiting_for_yolo_goal_ = true;
+                    RCLCPP_INFO(this->get_logger(), "Spiral search finished. Waiting for YOLO target '%s'.",
+                                waypoints_[goal_index_].yolo.c_str());
+                    return;
+                }
                 goal_index_++;
                 sendNextGoal();
                 return;
@@ -353,6 +381,38 @@ namespace ares_nav2 {
                     spiral_waypoints_.size());
     }
 
+    void GPSWaypointFollower::monitorSpiralTargets() {
+        if (!spiral_search_active_ || goal_index_ >= waypoints_.size()) {
+            return;
+        }
+
+        if (currentWaypointHasYoloTarget() && isCurrentYoloTargetVisible()) {
+            interruptSpiralSearchForYolo();
+        }
+    }
+
+    bool GPSWaypointFollower::isCurrentYoloTargetVisible() const {
+        if (!currentWaypointHasYoloTarget()) {
+            return false;
+        }
+
+        try {
+            auto transform = tf_buffer_->lookupTransform(
+                "map", waypoints_[goal_index_].yolo, tf2::TimePointZero);
+
+            if (yolo_tf_max_age_sec_ > 0.0 && transform.header.stamp.sec != 0) {
+                const double tf_age = (this->now() - rclcpp::Time(transform.header.stamp)).seconds();
+                if (tf_age > yolo_tf_max_age_sec_) {
+                    return false;
+                }
+            }
+
+            return true;
+        } catch (const tf2::TransformException &) {
+            return false;
+        }
+    }
+
     void GPSWaypointFollower::onResult(const GoalHandleNavigateToPose::WrappedResult &result) {
         // Clear goal handle
         {
@@ -398,6 +458,16 @@ namespace ares_nav2 {
             return;
         }
 
+        if (shouldStartSpiralSearch()) {
+            if (goal_index_ < waypoints_.size() && currentWaypointHasYoloTarget()) {
+                RCLCPP_INFO(this->get_logger(), "Reached GPS waypoint %zu. Starting spiral search before YOLO approach.",
+                            goal_index_ + 1);
+            }
+            startSpiralSearch();
+            sendNextGoal();
+            return;
+        }
+
         if (goal_index_ < waypoints_.size() && currentWaypointHasYoloTarget()) {
             activateYoloTargetForCurrentWaypoint();
             waiting_for_yolo_goal_ = true;
@@ -406,10 +476,7 @@ namespace ares_nav2 {
             return;
         }
 
-        if (shouldStartSpiralSearch()) {
-            startSpiralSearch();
-            sendNextGoal();
-        }else {
+        {
             goal_index_ ++;
             sendNextGoal();
         }

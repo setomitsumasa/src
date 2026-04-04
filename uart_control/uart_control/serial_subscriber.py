@@ -32,7 +32,7 @@ class SerialSubscriber(Node):
     def __init__(self) -> None:
         super().__init__('uart_serial_subscriber')
 
-        self.port = '/dev/uart_sensor'
+        self.port = '/dev/ttyUSB0'
         self.baudrate = 115200
         self.reconnect_period_sec = 1.0
         self._last_reconnect_log_ok = False

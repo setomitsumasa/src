@@ -15,7 +15,7 @@ def generate_launch_description():
                 # Nav2は/scanのframe_idをTFでcostmapのglobal_frameへ変換するため、このままで可。
                 'target_frame': 'livox_frame',
                 'transform_tolerance': 0.01,
-                'min_height': -0.2,   # 20cm（この高さ範囲の点だけをLaserScanに投影）
+                'min_height': 0.0,   # 20cm（この高さ範囲の点だけをLaserScanに投影）
                 'max_height': 1.0,    # 2.0m
                 'angle_min': -3.141592653589793,  # -180度
                 'angle_max': 3.141592653589793,   # 180度

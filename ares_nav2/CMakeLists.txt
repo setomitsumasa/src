@@ -40,6 +40,7 @@ ament_target_dependencies(ares_nav2
         sensor_msgs
         ament_index_cpp
         std_msgs
+        tf2_ros
 )
 target_link_libraries(ares_nav2 yaml-cpp)
 

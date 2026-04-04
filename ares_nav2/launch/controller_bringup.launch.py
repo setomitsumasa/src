@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 from launch_ros.actions import Node
 
 
@@ -13,6 +14,7 @@ def generate_launch_description():
     rover_controller_share = get_package_share_directory('rover_controller')
     livox_share = get_package_share_directory('livox_ros_driver2')
     realsense_share = get_package_share_directory('realsense_from_lib')
+    aruco_share = get_package_share_directory('aruco_opencv')
 
     serial_subscriber = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -29,6 +31,12 @@ def generate_launch_description():
     realsense = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(realsense_share, 'launch', 'publish_realsense.launch.py')
+        )
+    )
+
+    aruco_tracker = IncludeLaunchDescription(
+        XMLLaunchDescriptionSource(
+            os.path.join(aruco_share, 'launch', 'aruco_tracker.launch.xml')
         )
     )
 
@@ -64,6 +72,7 @@ def generate_launch_description():
         serial_subscriber,
         TimerAction(period=2.0, actions=[serial_publisher]),
         TimerAction(period=4.0, actions=[realsense]),
+        TimerAction(period=7.0, actions=[aruco_tracker]),
         TimerAction(period=6.0, actions=[sensor_data]),
         TimerAction(period=8.0, actions=[rover_controller]),
         TimerAction(period=10.0, actions=[livox_driver]),

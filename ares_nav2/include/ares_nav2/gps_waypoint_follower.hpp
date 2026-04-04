@@ -15,6 +15,8 @@
 #include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <vector>
 #include <string>
 #include <optional>
@@ -71,6 +73,9 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr aruco_enabled_pub_;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr aruco_target_marker_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr yolo_target_frame_pub_;
+    rclcpp::TimerBase::SharedPtr spiral_monitor_timer_;
+    std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
     // Waypoint management/state
     std::vector<GPSWaypoint> waypoints_;
@@ -83,6 +88,7 @@ private:
     bool waiting_for_yolo_goal_{false};
     bool aruco_target_active_{false};
     bool yolo_target_active_{false};
+    double yolo_tf_max_age_sec_{0.5};
 
     // Spiral search parameters
     bool spiral_search_active_{false};
@@ -104,12 +110,15 @@ private:
     bool shouldStartSpiralSearch() const;
     void cancelCurrentGoal();
     void interruptSpiralSearch();
+    void interruptSpiralSearchForYolo();
     void activateArucoTargetForCurrentWaypoint();
     void deactivateArucoTarget();
     bool currentWaypointHasArucoTarget() const;
     void activateYoloTargetForCurrentWaypoint();
     void deactivateYoloTarget();
     bool currentWaypointHasYoloTarget() const;
+    void monitorSpiralTargets();
+    bool isCurrentYoloTargetVisible() const;
 
     // Utility functions
     void onGoalResponse(std::shared_future<GoalHandleNavigateToPose::SharedPtr> future);

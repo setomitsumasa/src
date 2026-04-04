@@ -1,65 +1,10 @@
 waypoints: # URC2025 GPS Waypoints Starts:38.41910142, -110.782723
-- latitude: 0.0    # Debug goal: 10m east
-  longitude: 0.0   # ≒ 10m east at lat=0
+- latitude: 34.729905    # Debug goal: 10m east
+  longitude: 139.434109   # ≒ 10m east at lat=0
   yaw: 0.0
-  spiral_search: false
+  spiral_search: true
   aruco: disable
-  marker_id: 1
-  yolo: mallet
+  marker_id: 2
+  yolo: mallet # bottle, mallet, hummer
   
-- latitude: 35.5371031    # Debug goal: 10m east
-  longitude: 134.2110154    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1 
-  yolo: disable
 
-- latitude: 35.5372668    # Debug goal: 10m east
-  longitude: 134.2110087    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1 
-  yolo: disable
-  
-- latitude: 35.5371815    # Debug goal: 10m east
-  longitude: 134.2109030    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1 
-  yolo: disable
-  
-- latitude: 35.5370308    # Debug goal: 10m east
-  longitude: 134.2108990    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1
-  yolo: disable 
-  
-- latitude: 35.5373086    # Debug goal: 10m east
-  longitude: 134.2111789    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1 
-  yolo: disable
-  
-- latitude: 35.5372979    # Debug goal: 10m east
-  longitude: 134.2112599    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1 
-  yolo: disable
-  
-- latitude: 35.5371567    # Debug goal: 10m east
-  longitude: 134.2112150    # ≒ 10m east at lat=0
-  yaw: 0.0
-  spiral_search: false
-  aruco: disable
-  marker_id: -1 
-  yolo: disable
-  
