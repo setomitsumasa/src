@@ -1,4 +1,9 @@
 # URC2026 Auronomous Controller 
+
+## Documentation
+
+各パッケージの役割や利用関係をまとめたドキュメントは [doc/README.md](./doc/README.md) を参照してください。
+
 ## Launch
 UARTの起動
 ```
@@ -48,5 +53,3 @@ waypointsへ移動
 ```
 ros2 launch ares_nav2 main.launch.py 
 ```
-
-
