@@ -5,16 +5,22 @@
 
 ## まず何を読むべきか
 
-1. [ares_nav2](./ares_nav2_README.md)
-2. [ares_sensor](./ares_sensor_README.md)
-3. [uart_control](./uart_control_README.md)
-4. [rover_controller](./rover_controller_README.md)
-5. [realsense_from_lib](./realsense_from_lib_README.md)
-6. [aruco_opencv](./aruco_opencv_README.md)
-7. [YOLO_detection_v2](./YOLO_detection_v2_README.md)
-8. [livox_ros_driver2](./livox_ros_driver2_README.md)
-9. [livox_to_pointcloud2](./livox_to_pointcloud2_README.md)
-10. [pointcloud_to_laserscan](./pointcloud_to_laserscan_README.md)
+1. [ノード・トピック通信グラフ](./node_topic_graph_README.md)
+2. [ares_nav2](./ares_nav2_README.md)
+3. [ares_sensor](./ares_sensor_README.md)
+4. [uart_control](./uart_control_README.md)
+5. [rover_controller](./rover_controller_README.md)
+6. [realsense_from_lib](./realsense_from_lib_README.md)
+7. [aruco_opencv](./aruco_opencv_README.md)
+8. [YOLO_detection_v2](./YOLO_detection_v2_README.md)
+9. [livox_ros_driver2](./livox_ros_driver2_README.md)
+10. [livox_to_pointcloud2](./livox_to_pointcloud2_README.md)
+11. [pointcloud_to_laserscan](./pointcloud_to_laserscan_README.md)
+
+## 通信の全体像を先に見たい場合
+
+ノード間の接続、主要 topic、TF、Nav2 への受け渡しを先に把握したい場合は  
+[ノード・トピック通信グラフ](./node_topic_graph_README.md) から読むと追いやすいです。
 
 ## 全体構成
 
