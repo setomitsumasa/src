@@ -72,7 +72,9 @@ target_compile_features(sensor_tf_node PUBLIC cxx_std_17)
 ament_target_dependencies(sensor_tf_node
         rclcpp
         geometry_msgs
+        sensor_msgs
         std_msgs
+        tf2
         tf2_ros
 )
 
