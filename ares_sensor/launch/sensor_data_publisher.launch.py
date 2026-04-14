@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.conditions import UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -29,6 +30,13 @@ def generate_launch_description() -> LaunchDescription:
                 executable="imu_node",
                 name="uart_imu_node",
                 condition=UnlessCondition(LaunchConfiguration("sim")),
+            ),
+            # シミュレータ用 IMU ノード（/imu -> /imu/data）
+            launch_ros.actions.Node(
+                package="ares_sensor",
+                executable="sim_imu_node",
+                name="sim_imu_node",
+                condition=IfCondition(LaunchConfiguration("sim")),
             ),
             # 既存 IMU RPY ノード
             launch_ros.actions.Node(

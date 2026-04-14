@@ -57,6 +57,17 @@ add_executable(imu_node
 target_compile_features(imu_node PUBLIC cxx_std_17)
 target_link_libraries(imu_node PRIVATE ares_sensor)
 
+add_executable(sim_imu_node
+        src/sim_imu.cpp
+)
+
+target_compile_features(sim_imu_node PUBLIC cxx_std_17)
+ament_target_dependencies(sim_imu_node
+        rclcpp
+        sensor_msgs
+        tf2
+)
+
 add_executable(gps_node
         src/gps.cpp
 )
@@ -109,6 +120,7 @@ install(TARGETS
         ares_sensor
         sensor_node
         imu_node
+        sim_imu_node
         gps_node
         sensor_tf_node
         pointcloud_stabilizer_node

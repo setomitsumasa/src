@@ -90,11 +90,12 @@ def generate_launch_description():
         }.items(),
     )
 
-    # IMU RPY publisher launch include
-    imu_rpy_publisher_cmd = IncludeLaunchDescription(
+    # Sim用 sensor_data 起動（sim_imu_node, imu_rpy_publisher, sensor_tf_node）
+    sensor_data_publisher_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory('ares_sensor'), 'launch', 'imu_rpy_publisher.launch.py')
-        )
+            os.path.join(get_package_share_directory('ares_sensor'), 'launch', 'sensor_data_publisher.launch.py')
+        ),
+        launch_arguments={'sim': 'true'}.items(),
     )
 
     # ArUco tracker launch include
@@ -123,8 +124,8 @@ def generate_launch_description():
 
     # navigation2 launch
     ld.add_action(navigation2_cmd)
-    # imu rpy publisher launch
-    ld.add_action(imu_rpy_publisher_cmd)
+    # sensor data launch for simulation
+    ld.add_action(sensor_data_publisher_cmd)
     # aruco tracker launch
     ld.add_action(aruco_tracker_cmd)
     # sample pointcloud_to_laserscan launch
