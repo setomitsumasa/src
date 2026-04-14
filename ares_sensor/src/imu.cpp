@@ -46,7 +46,7 @@ public:
                 std::bind(&UartImuNode::uartCallback, this, _1));
 
         // IMU データを publish するトピック
-        imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu/data", rclcpp::QoS(50));
+        imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("imu", rclcpp::QoS(50));
 
         // publish 周期（Hz）: sensor_tf.cpp と同様にパラメータ指定可
         const int publish_rate = this->declare_parameter<int>("publish_rate", 50);
