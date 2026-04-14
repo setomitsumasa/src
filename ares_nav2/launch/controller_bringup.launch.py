@@ -80,6 +80,13 @@ def generate_launch_description():
         }],
     )
 
+    yolo_tf = Node(
+        package='YOLO_detection_v2',
+        executable='publish_YOLOtf',
+        name='publish_YOLOtf',
+        output='screen',
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'sim',
@@ -92,6 +99,7 @@ def generate_launch_description():
         TimerAction(period=7.0, actions=[aruco_tracker]),
         TimerAction(period=6.0, actions=[sensor_data]),
         TimerAction(period=8.0, actions=[rover_controller]),
+        TimerAction(period=9.0, actions=[yolo_tf]),
         TimerAction(period=10.0, actions=[livox_driver]),
         TimerAction(period=12.0, actions=[livox_to_pointcloud2]),
     ])

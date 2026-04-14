@@ -1,13 +1,18 @@
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    qos_profile_sensor_data,
+    QoSProfile,
+    ReliabilityPolicy,
+    HistoryPolicy,
+    DurabilityPolicy,
+)
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 
 from ultralytics import YOLO
 import os
-from ament_index_python.packages import get_package_share_directory
-from std_msgs.msg import String, Int16MultiArray
+from std_msgs.msg import String, Int16MultiArray, Bool
 from geometry_msgs.msg import Twist, TransformStamped
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
@@ -18,6 +23,33 @@ import math
 import json
 import numpy as np
 
+
+def resolve_model_path():
+    model_name = 'train260205s_best.pt'
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    package_root = os.path.dirname(module_dir)
+    candidates = []
+
+    current_dir = module_dir
+    while True:
+        if os.path.basename(current_dir) == 'install':
+            workspace_root = os.path.dirname(current_dir)
+            candidates.append(os.path.join(workspace_root, 'src', 'YOLO_detection_v2', model_name))
+            break
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+
+    candidates.append(os.path.join(package_root, model_name))
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    raise FileNotFoundError(
+        f'YOLO model not found. Tried: {candidates}'
+    )
 
 
 
@@ -30,8 +62,24 @@ class Make_YOLOtf(Node):
         self.depth_scale = None
         self.fx = None
         self.fy = None
+        self.model = None
+        self.model_path = resolve_model_path()
+        self.yolo_enabled = False
+
+        latched_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
 
         # Subscriber の作成
+        self.yolo_enabled_subscription = self.create_subscription(
+            Bool,
+            '/yolo/enabled',
+            self.yolo_enabled_callback,
+            latched_qos)
+
         self.realsense_info_subscription = self.create_subscription(
             String,
             'realsense_info',
@@ -55,11 +103,6 @@ class Make_YOLOtf(Node):
             'camera/color/image_raw',
             self.bgr_callback,
             qos_profile_sensor_data)
-
-        # Load YOLO model
-        self.package_dir = get_package_share_directory('YOLO_detection_v2')
-        self.model_path = os.path.join(self.package_dir, 'train260205s_best.pt')
-        self.model = YOLO(self.model_path)
 
         # 検出履歴の初期化
         self.detection_history = [
@@ -95,6 +138,28 @@ class Make_YOLOtf(Node):
             2: {'class': 'bottle', 'size': [0.04,0.27]}, #bottle
         }
 
+    def yolo_enabled_callback(self, data):
+        enabled = bool(data.data)
+        if enabled == self.yolo_enabled:
+            return
+
+        self.yolo_enabled = enabled
+        if enabled:
+            self.ensure_model_loaded()
+            self.get_logger().info(f'YOLO enabled. model_path={self.model_path}')
+        else:
+            self.model = None
+            self.depth_data = None
+            self.detection_history = [
+                {'class': None, 'confidence': None, 'box': [], 'TF_success': False, 'real_world_cordinates': [None, None, None], 'real_world_width': None, 'real_world_height': None},
+                {'class': None, 'confidence': None, 'box': [], 'TF_success': False, 'real_world_cordinates': [None, None, None], 'real_world_width': None, 'real_world_height': None},
+            ]
+            self.get_logger().info('YOLO disabled. Unloaded model and stopped image processing.')
+
+    def ensure_model_loaded(self):
+        if self.model is None:
+            self.model = YOLO(self.model_path)
+
 
 
     # RealSenseの情報を取得するcallback関数
@@ -113,12 +178,19 @@ class Make_YOLOtf(Node):
 
     # 深度データを取得するcallback関数
     def depth_callback(self, raw_depth_data):
+        if not self.yolo_enabled:
+            return
         self.depth_data = self.cv_bridge.imgmsg_to_cv2(raw_depth_data, desired_encoding='16UC1')
 
 
 
     # BGRデータを取得しdepthデータとともに検出結果を取得し、TFをpublishするcallback関数
     def bgr_callback(self, raw_bgr_data):
+        if not self.yolo_enabled:
+            return
+
+        self.ensure_model_loaded()
+
         # BGR 形式の画像データを OpenCV 形式に変換
         self.bgr_data = self.cv_bridge.imgmsg_to_cv2(raw_bgr_data, desired_encoding='bgr8')
 

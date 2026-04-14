@@ -39,12 +39,14 @@ private:
   void onTargetMarkerId(const std_msgs::msg::Int32::SharedPtr msg);
   void onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg);
   void resetTrackingState();
+  void markGoalReached();
 
   // ROS
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr goal_hold_timer_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_marker_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr detected_marker_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
@@ -57,8 +59,11 @@ private:
   std::string robot_base_frame_;
   double goal_send_interval_sec_;
   double goal_update_threshold_;
+  double max_tf_age_sec_;
+  double goal_hold_time_sec_;
   double goal_tolerance_;
   bool send_only_once_;
+  bool follow_any_detected_marker_;
   std::string navigate_to_pose_action_;
   std::string target_marker_topic_;
   std::string detected_marker_topic_;
@@ -75,6 +80,7 @@ private:
   int target_marker_id_{-1};
   int detected_marker_id_{-1};
   bool has_detected_marker_id_{false};
+  bool waiting_after_goal_reached_{false};
 };
 
 }  // namespace ares_nav2

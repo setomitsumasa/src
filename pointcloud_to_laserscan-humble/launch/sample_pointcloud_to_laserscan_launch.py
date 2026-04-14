@@ -17,9 +17,9 @@ def generate_launch_description():
                 'transform_tolerance': 0.01,
                 'min_height': 0.4,   # 20cm（この高さ範囲の点だけをLaserScanに投影）
                 'max_height': 1.5,    # 2.0m
-                'angle_min': -3.141592653589793,  # -180度
-                'angle_max': 3.141592653589793,   # 180度
-                'angle_increment': 0.005,
+                'angle_min': -1.54,  # -180度
+                'angle_max': 1.54,   # 180度
+                'angle_increment': 0.003,
                 'scan_time': 0.01,     # 100Hz
                 'range_min': 2.0,     # 0.5m
                 'range_max': 8.0,     # 8m

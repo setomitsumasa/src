@@ -18,6 +18,7 @@
 #include <thread>
 #include <cmath>
 #include <sstream>
+#include <string>
 #include <tf2/time.h>
 
 using namespace std::chrono_literals;
@@ -48,7 +49,10 @@ namespace ares_nav2 {
         aruco_enabled_pub_ = this->create_publisher<std_msgs::msg::Bool>(
             "/aruco/enabled", rclcpp::QoS(1).reliable().transient_local());
         aruco_target_marker_pub_ = this->create_publisher<std_msgs::msg::Int32>("/aruco/target_marker_id", 10);
-        yolo_target_frame_pub_ = this->create_publisher<std_msgs::msg::String>("/yolo/target_frame", 10);
+        yolo_enabled_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/yolo/enabled", rclcpp::QoS(1).reliable().transient_local());
+        yolo_target_frame_pub_ = this->create_publisher<std_msgs::msg::String>(
+            "/yolo/target_frame", rclcpp::QoS(1).reliable().transient_local());
         spiral_monitor_timer_ = this->create_wall_timer(
             200ms, std::bind(&GPSWaypointFollower::monitorSpiralTargets, this));
         deactivateArucoTarget();
@@ -68,6 +72,10 @@ namespace ares_nav2 {
     }
 
     void GPSWaypointFollower::onMarkerDetected(const std_msgs::msg::Float32::SharedPtr msg) {
+        latest_detected_marker_id_ = static_cast<int>(std::lround(msg->data));
+        has_recent_aruco_detection_ = true;
+        last_aruco_detection_time_ = this->now();
+
         if (!spiral_search_active_) {
             return;
         }
@@ -95,7 +103,7 @@ namespace ares_nav2 {
             return;
         }
         
-        RCLCPP_INFO(this->get_logger(), "Interrupting spiral search. Canceling remaining spiral waypoints.");
+        RCLCPP_INFO(this->get_logger(), "Interrupting spiral search. Canceling current spiral goal and handing off to ArUco approach.");
         cancelCurrentGoal();
         
         // Reset spiral search state
@@ -132,6 +140,40 @@ namespace ares_nav2 {
 
         const auto& current_wp = waypoints_[goal_index_];
         return current_wp.aruco != "disable" && current_wp.marker_id >= 0;
+    }
+
+    bool GPSWaypointFollower::isCurrentArucoTargetVisible() const {
+        if (!currentWaypointHasArucoTarget() || !has_recent_aruco_detection_) {
+            return false;
+        }
+
+        const auto& current_wp = waypoints_[goal_index_];
+        if (latest_detected_marker_id_ != current_wp.marker_id) {
+            return false;
+        }
+
+        const double detection_age =
+            (this->now() - last_aruco_detection_time_).seconds();
+        if (detection_age > aruco_detection_max_age_sec_) {
+            return false;
+        }
+
+        try {
+            auto transform = tf_buffer_->lookupTransform(
+                "map", "aruco_marker", tf2::TimePointZero);
+
+            if (transform.header.stamp.sec != 0 || transform.header.stamp.nanosec != 0) {
+                const double tf_age =
+                    (this->now() - rclcpp::Time(transform.header.stamp)).seconds();
+                if (tf_age > aruco_detection_max_age_sec_) {
+                    return false;
+                }
+            }
+
+            return true;
+        } catch (const tf2::TransformException &) {
+            return false;
+        }
     }
 
     void GPSWaypointFollower::activateArucoTargetForCurrentWaypoint() {
@@ -180,6 +222,10 @@ namespace ares_nav2 {
             return;
         }
 
+        std_msgs::msg::Bool enabled_msg;
+        enabled_msg.data = true;
+        yolo_enabled_pub_->publish(enabled_msg);
+
         std_msgs::msg::String msg;
         msg.data = waypoints_[goal_index_].yolo;
         yolo_target_frame_pub_->publish(msg);
@@ -189,6 +235,10 @@ namespace ares_nav2 {
     }
 
     void GPSWaypointFollower::deactivateYoloTarget() {
+        std_msgs::msg::Bool enabled_msg;
+        enabled_msg.data = false;
+        yolo_enabled_pub_->publish(enabled_msg);
+
         std_msgs::msg::String msg;
         msg.data = "disable";
         yolo_target_frame_pub_->publish(msg);
@@ -196,12 +246,28 @@ namespace ares_nav2 {
     }
 
     void GPSWaypointFollower::onArucoGoalReached(const std_msgs::msg::Bool::SharedPtr msg) {
-        if (!msg->data || !waiting_for_aruco_goal_) {
+        if (!msg->data) {
             return;
         }
 
-        RCLCPP_INFO(this->get_logger(), "ArUco goal reached for waypoint %zu. Proceeding to next waypoint.",
-                    goal_index_ + 1);
+        const bool should_handle =
+            waiting_for_aruco_goal_ || spiral_search_active_ || aruco_target_active_;
+        if (!should_handle) {
+            return;
+        }
+
+        if (spiral_search_active_) {
+            RCLCPP_INFO(this->get_logger(),
+                        "ArUco goal reached while spiral search is active. Canceling spiral search and proceeding to next waypoint.");
+            cancelCurrentGoal();
+            spiral_search_active_ = false;
+            spiral_index_ = 0;
+            spiral_waypoints_.clear();
+        } else {
+            RCLCPP_INFO(this->get_logger(), "ArUco goal reached for waypoint %zu. Proceeding to next waypoint.",
+                        goal_index_ + 1);
+        }
+
         waiting_for_aruco_goal_ = false;
         deactivateArucoTarget();
         goal_index_++;
@@ -286,8 +352,13 @@ namespace ares_nav2 {
             NavigateToPose::Goal goal;
             goal.pose = pose;
 
-            RCLCPP_INFO(this->get_logger(), "Sending spiral goal %zu: x=%.2f, y=%.2f, yaw=%.2f",
-                        spiral_index_, wp.x, wp.y, wp.yaw);
+            {
+                std::ostringstream oss;
+                oss << "Sending spiral goal " << spiral_index_
+                    << ": x=" << wp.x << ", y=" << wp.y << ", yaw=" << wp.yaw;
+                last_sent_goal_log_ = oss.str();
+            }
+            RCLCPP_INFO(this->get_logger(), "%s", last_sent_goal_log_.c_str());
 
             if (!action_client_->wait_for_action_server(2s)) {
                 RCLCPP_WARN(this->get_logger(), "Action server not available after waiting");
@@ -323,8 +394,17 @@ namespace ares_nav2 {
         NavigateToPose::Goal goal;
         goal.pose = pose;
 
-        RCLCPP_INFO(this->get_logger(), "Sending goal %zu: x=%.2f y=%.2f : GNSS %.8f, %.8f, yaw=%.1fdeg",
-                    goal_index_ + 1, enu.first, enu.second, wp.latitude, wp.longitude, wp.yaw);
+        {
+            std::ostringstream oss;
+            oss << "Sending goal " << (goal_index_ + 1)
+                << ": x=" << enu.first
+                << ", y=" << enu.second
+                << " : GNSS " << wp.latitude
+                << ", " << wp.longitude
+                << ", yaw=" << wp.yaw;
+            last_sent_goal_log_ = oss.str();
+        }
+        RCLCPP_INFO(this->get_logger(), "%s", last_sent_goal_log_.c_str());
 
         if (!action_client_->wait_for_action_server(2s)) {
             RCLCPP_WARN(this->get_logger(), "Action server not available");
@@ -386,6 +466,14 @@ namespace ares_nav2 {
             return;
         }
 
+        if (currentWaypointHasArucoTarget() && isCurrentArucoTargetVisible()) {
+            RCLCPP_INFO(this->get_logger(),
+                        "ArUco marker_id=%d became visible during spiral search. Switching from spiral goal to ArUco goal.",
+                        waypoints_[goal_index_].marker_id);
+            interruptSpiralSearch();
+            return;
+        }
+
         if (currentWaypointHasYoloTarget() && isCurrentYoloTargetVisible()) {
             interruptSpiralSearchForYolo();
         }
@@ -420,15 +508,28 @@ namespace ares_nav2 {
             current_goal_handle_.reset();
         }
 
-        // Check if goal was canceled
         if (result.code == rclcpp_action::ResultCode::CANCELED) {
             RCLCPP_INFO(this->get_logger(), "Goal was canceled");
-            // If spiral was interrupted, don't continue with spiral waypoints
-            if (!spiral_search_active_) {
-                return;
-            }
-        } else {
+            return;
+        }
+
+        if (result.code == rclcpp_action::ResultCode::ABORTED) {
+            RCLCPP_WARN(this->get_logger(), "Goal was aborted");
+            return;
+        }
+
+        if (result.code != rclcpp_action::ResultCode::SUCCEEDED) {
+            RCLCPP_WARN(this->get_logger(), "Goal finished with unexpected result code: %d",
+                        static_cast<int>(result.code));
+            return;
+        }
+
+        {
             RCLCPP_INFO(this->get_logger(), "Reached goal");
+            if (!last_sent_goal_log_.empty()) {
+                RCLCPP_INFO(this->get_logger(), "\033[32mReached published goal: %s\033[0m",
+                            last_sent_goal_log_.c_str());
+            }
             // uart_command に 0x441 を3回送信（serial_publiasher が UART で MCU に送る）
             std_msgs::msg::Int16MultiArray uart_msg;
             uart_msg.data = {static_cast<int16_t>(0x441), 0, static_cast<int16_t>(0x441), 0};
@@ -447,7 +548,12 @@ namespace ares_nav2 {
 
         if (goal_index_ < waypoints_.size() && currentWaypointHasArucoTarget()) {
             activateArucoTargetForCurrentWaypoint();
-            if (shouldStartSpiralSearch()) {
+            if (isCurrentArucoTargetVisible()) {
+                waiting_for_aruco_goal_ = true;
+                RCLCPP_INFO(this->get_logger(),
+                            "Reached GPS waypoint %zu. ArUco marker_id=%d is already visible, skipping spiral search.",
+                            goal_index_ + 1, waypoints_[goal_index_].marker_id);
+            } else if (shouldStartSpiralSearch()) {
                 startSpiralSearch();
                 sendNextGoal();
             } else {
@@ -460,6 +566,7 @@ namespace ares_nav2 {
 
         if (shouldStartSpiralSearch()) {
             if (goal_index_ < waypoints_.size() && currentWaypointHasYoloTarget()) {
+                activateYoloTargetForCurrentWaypoint();
                 RCLCPP_INFO(this->get_logger(), "Reached GPS waypoint %zu. Starting spiral search before YOLO approach.",
                             goal_index_ + 1);
             }

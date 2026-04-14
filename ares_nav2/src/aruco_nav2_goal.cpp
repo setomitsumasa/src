@@ -15,9 +15,14 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
 {
   declare_parameter<std::string>("target_frame", "map");
   declare_parameter<std::string>("aruco_frame", "aruco_marker");
+  declare_parameter<std::string>("robot_base_frame", "base_link");
   declare_parameter<double>("goal_send_interval_sec", 5.0);
   declare_parameter<double>("goal_update_threshold", 0.3);
+  declare_parameter<double>("max_tf_age_sec", 1.0);
+  declare_parameter<double>("goal_hold_time_sec", 5.0);
+  declare_parameter<double>("goal_tolerance", 1.5);
   declare_parameter<bool>("send_only_once", false);
+  declare_parameter<bool>("follow_any_detected_marker", false);
   declare_parameter<std::string>("navigate_to_pose_action", "navigate_to_pose");
   declare_parameter<double>("timer_period_sec", 0.2);
   declare_parameter<std::string>("target_marker_topic", "/aruco/target_marker_id");
@@ -26,9 +31,14 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
 
   target_frame_ = get_parameter("target_frame").get_value<std::string>();
   aruco_frame_ = get_parameter("aruco_frame").get_value<std::string>();
+  robot_base_frame_ = get_parameter("robot_base_frame").get_value<std::string>();
   goal_send_interval_sec_ = get_parameter("goal_send_interval_sec").get_value<double>();
   goal_update_threshold_ = get_parameter("goal_update_threshold").get_value<double>();
+  max_tf_age_sec_ = get_parameter("max_tf_age_sec").get_value<double>();
+  goal_hold_time_sec_ = get_parameter("goal_hold_time_sec").get_value<double>();
+  goal_tolerance_ = get_parameter("goal_tolerance").get_value<double>();
   send_only_once_ = get_parameter("send_only_once").get_value<bool>();
+  follow_any_detected_marker_ = get_parameter("follow_any_detected_marker").get_value<bool>();
   navigate_to_pose_action_ = get_parameter("navigate_to_pose_action").get_value<std::string>();
   target_marker_topic_ = get_parameter("target_marker_topic").get_value<std::string>();
   detected_marker_topic_ = get_parameter("detected_marker_topic").get_value<std::string>();
@@ -55,8 +65,10 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
     std::bind(&ArucoNav2Goal::onTimer, this));
 
   RCLCPP_INFO(get_logger(),
-    "aruco_nav2_goal: target_frame=%s, aruco_frame=%s, interval=%.1fs, update_threshold=%.2fm, send_only_once=%d",
-    target_frame_.c_str(), aruco_frame_.c_str(), goal_send_interval_sec_, goal_update_threshold_, send_only_once_);
+    "aruco_nav2_goal: target_frame=%s, aruco_frame=%s, robot_base_frame=%s, interval=%.1fs, update_threshold=%.2fm, max_tf_age=%.2fs, hold=%.1fs, goal_tolerance=%.2fm, send_only_once=%d, follow_any_detected_marker=%d",
+    target_frame_.c_str(), aruco_frame_.c_str(), robot_base_frame_.c_str(),
+    goal_send_interval_sec_, goal_update_threshold_, max_tf_age_sec_, goal_hold_time_sec_,
+    goal_tolerance_, send_only_once_, follow_any_detected_marker_);
 }
 
 void ArucoNav2Goal::resetTrackingState()
@@ -87,17 +99,30 @@ void ArucoNav2Goal::onTargetMarkerId(const std_msgs::msg::Int32::SharedPtr msg)
 
 void ArucoNav2Goal::onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg)
 {
-  detected_marker_id_ = static_cast<int>(std::lround(msg->data));
+  const int marker_id = static_cast<int>(std::lround(msg->data));
+  if (follow_any_detected_marker_ && (!has_detected_marker_id_ || detected_marker_id_ != marker_id)) {
+    resetTrackingState();
+  }
+  detected_marker_id_ = marker_id;
   has_detected_marker_id_ = true;
 }
 
 void ArucoNav2Goal::onTimer()
 {
-  if (target_marker_id_ < 0) {
-    return;
+  if (follow_any_detected_marker_) {
+    if (!has_detected_marker_id_) {
+      return;
+    }
+  } else {
+    if (target_marker_id_ < 0) {
+      return;
+    }
+    if (!has_detected_marker_id_ || detected_marker_id_ != target_marker_id_) {
+      return;
+    }
   }
 
-  if (!has_detected_marker_id_ || detected_marker_id_ != target_marker_id_) {
+  if (waiting_after_goal_reached_) {
     return;
   }
 
@@ -108,6 +133,42 @@ void ArucoNav2Goal::onTimer()
   } catch (const tf2::TransformException & ex) {
     RCLCPP_DEBUG(get_logger(), "TF lookup failed: %s", ex.what());
     return;
+  }
+
+  const auto transform_stamp = rclcpp::Time(transform.header.stamp);
+  if (transform_stamp.nanoseconds() > 0) {
+    const double tf_age_sec = (now() - transform_stamp).seconds();
+    if (tf_age_sec > max_tf_age_sec_) {
+      RCLCPP_DEBUG(
+        get_logger(),
+        "Ignoring stale ArUco TF (age=%.3fs > %.3fs)",
+        tf_age_sec, max_tf_age_sec_);
+      return;
+    }
+  } else if (follow_any_detected_marker_) {
+    RCLCPP_DEBUG(get_logger(), "Ignoring ArUco TF without timestamp");
+    return;
+  }
+
+  try {
+    const auto relative_transform = tf_buffer_->lookupTransform(
+      robot_base_frame_, aruco_frame_, tf2::TimePointZero);
+    const double distance_to_marker = std::hypot(
+      relative_transform.transform.translation.x,
+      relative_transform.transform.translation.y);
+
+    if (distance_to_marker <= goal_tolerance_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "\033[32mReached ArUco goal by distance threshold: marker is %.2fm away (tolerance %.2fm)\033[0m",
+        distance_to_marker, goal_tolerance_);
+      waiting_after_goal_reached_ = true;
+      cancelCurrentGoal();
+      markGoalReached();
+      return;
+    }
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_DEBUG(get_logger(), "Robot-to-ArUco TF lookup failed: %s", ex.what());
   }
 
   if (send_only_once_ && goal_sent_once_) {
@@ -175,7 +236,7 @@ void ArucoNav2Goal::sendGoal(const geometry_msgs::msg::PoseStamped & pose)
 
   action_client_->async_send_goal(goal, opts);
   RCLCPP_INFO(get_logger(),
-    "Sent Nav2 goal from ArUco TF: (%.2f, %.2f) in frame %s",
+    "\033[32mSent Nav2 goal from ArUco TF: (%.2f, %.2f) in frame %s\033[0m",
     pose.pose.position.x, pose.pose.position.y, pose.header.frame_id.c_str());
 }
 
@@ -190,6 +251,35 @@ void ArucoNav2Goal::onGoalResponse(GoalHandleNavigateToPose::SharedPtr handle)
   RCLCPP_INFO(get_logger(), "Nav2 goal accepted");
 }
 
+void ArucoNav2Goal::markGoalReached()
+{
+  if (goal_hold_time_sec_ > 0.0) {
+    RCLCPP_INFO(get_logger(), "Holding position for %.1f seconds at ArUco goal", goal_hold_time_sec_);
+  }
+
+  goal_hold_timer_ = create_wall_timer(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::duration<double>(std::max(0.0, goal_hold_time_sec_))),
+    [this]() {
+      if (goal_hold_timer_) {
+        goal_hold_timer_->cancel();
+        goal_hold_timer_.reset();
+      }
+
+      std_msgs::msg::Bool msg;
+      msg.data = true;
+      goal_reached_pub_->publish(msg);
+
+      waiting_after_goal_reached_ = false;
+      if (follow_any_detected_marker_) {
+        goal_sent_once_ = send_only_once_;
+      } else {
+        target_marker_id_ = -1;
+        resetTrackingState();
+      }
+    });
+}
+
 void ArucoNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & result)
 {
   {
@@ -198,14 +288,9 @@ void ArucoNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & res
   }
   switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:
-      RCLCPP_INFO(get_logger(), "Reached ArUco goal");
-      {
-        std_msgs::msg::Bool msg;
-        msg.data = true;
-        goal_reached_pub_->publish(msg);
-      }
-      target_marker_id_ = -1;
-      resetTrackingState();
+      RCLCPP_INFO(get_logger(), "\033[32mReached ArUco goal\033[0m");
+      waiting_after_goal_reached_ = true;
+      markGoalReached();
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_WARN(get_logger(), "Goal aborted");

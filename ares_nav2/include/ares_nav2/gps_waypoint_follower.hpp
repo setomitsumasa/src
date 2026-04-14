@@ -72,6 +72,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr uart_command_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr aruco_enabled_pub_;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr aruco_target_marker_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr yolo_enabled_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr yolo_target_frame_pub_;
     rclcpp::TimerBase::SharedPtr spiral_monitor_timer_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -88,7 +89,11 @@ private:
     bool waiting_for_yolo_goal_{false};
     bool aruco_target_active_{false};
     bool yolo_target_active_{false};
+    double aruco_detection_max_age_sec_{1.0};
     double yolo_tf_max_age_sec_{0.5};
+    int latest_detected_marker_id_{-1};
+    bool has_recent_aruco_detection_{false};
+    rclcpp::Time last_aruco_detection_time_{0, 0, RCL_ROS_TIME};
 
     // Spiral search parameters
     bool spiral_search_active_{false};
@@ -99,6 +104,7 @@ private:
     // Goal handle management
     std::mutex goal_handle_mutex_;
     GoalHandleNavigateToPose::SharedPtr current_goal_handle_;
+    std::string last_sent_goal_log_;
 
     // Callbacks
     void onGpsFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
@@ -114,6 +120,7 @@ private:
     void activateArucoTargetForCurrentWaypoint();
     void deactivateArucoTarget();
     bool currentWaypointHasArucoTarget() const;
+    bool isCurrentArucoTargetVisible() const;
     void activateYoloTargetForCurrentWaypoint();
     void deactivateYoloTarget();
     bool currentWaypointHasYoloTarget() const;
