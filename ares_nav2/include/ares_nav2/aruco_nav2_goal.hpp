@@ -40,6 +40,7 @@ private:
   void onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg);
   void resetTrackingState();
   void markGoalReached();
+  void publishGoalReached(bool reached);
 
   // ROS
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -51,7 +52,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr detected_marker_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
 
-  void cancelCurrentGoal();
+  void cancelCurrentGoal(bool suppress_cancel_result = true);
 
   // Parameters
   std::string target_frame_;
@@ -81,6 +82,7 @@ private:
   int detected_marker_id_{-1};
   bool has_detected_marker_id_{false};
   bool waiting_after_goal_reached_{false};
+  int suppressed_cancel_results_{0};
 };
 
 }  // namespace ares_nav2

@@ -21,7 +21,7 @@ waypoints: # URC2025 GPS Waypoints Starts:38.41910142, -110.782723
   spiral_search: true
   aruco: disable
   marker_id: 1
-  yolo: hammer # bottle, mallet, hammer
+  yolo: mallet # bottle, mallet, hammer
   
 - latitude: 38.41965712 # AR 2
   longitude: -110.7843735

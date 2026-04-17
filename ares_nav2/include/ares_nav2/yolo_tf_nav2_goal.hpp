@@ -35,9 +35,10 @@ private:
   void sendGoal(const geometry_msgs::msg::PoseStamped & pose);
   void onGoalResponse(GoalHandleNavigateToPose::SharedPtr handle);
   void onResult(const GoalHandleNavigateToPose::WrappedResult & result);
-  void cancelCurrentGoal();
+  void cancelCurrentGoal(bool suppress_cancel_result = true);
   void resetTrackingState();
   void markGoalReached();
+  void publishGoalReached(bool reached);
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -69,6 +70,7 @@ private:
   double last_goal_y_{0.0};
   bool has_last_goal_{false};
   bool waiting_after_goal_reached_{false};
+  int suppressed_cancel_results_{0};
 };
 
 }  // namespace ares_nav2

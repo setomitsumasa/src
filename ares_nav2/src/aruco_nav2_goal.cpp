@@ -206,13 +206,16 @@ void ArucoNav2Goal::onTimer()
   }
 }
 
-void ArucoNav2Goal::cancelCurrentGoal()
+void ArucoNav2Goal::cancelCurrentGoal(bool suppress_cancel_result)
 {
   std::lock_guard<std::mutex> lock(goal_mutex_);
   if (current_goal_handle_) {
     const auto status = current_goal_handle_->get_status();
     if (status == rclcpp_action::GoalStatus::STATUS_EXECUTING ||
         status == rclcpp_action::GoalStatus::STATUS_ACCEPTED) {
+      if (suppress_cancel_result) {
+        ++suppressed_cancel_results_;
+      }
       action_client_->async_cancel_goal(current_goal_handle_);
       RCLCPP_DEBUG(get_logger(), "Canceled current goal to update to new TF position");
     }
@@ -266,9 +269,7 @@ void ArucoNav2Goal::markGoalReached()
         goal_hold_timer_.reset();
       }
 
-      std_msgs::msg::Bool msg;
-      msg.data = true;
-      goal_reached_pub_->publish(msg);
+      publishGoalReached(true);
 
       waiting_after_goal_reached_ = false;
       if (follow_any_detected_marker_) {
@@ -278,6 +279,13 @@ void ArucoNav2Goal::markGoalReached()
         resetTrackingState();
       }
     });
+}
+
+void ArucoNav2Goal::publishGoalReached(bool reached)
+{
+  std_msgs::msg::Bool msg;
+  msg.data = reached;
+  goal_reached_pub_->publish(msg);
 }
 
 void ArucoNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & result)
@@ -294,9 +302,16 @@ void ArucoNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & res
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_WARN(get_logger(), "Goal aborted");
+      publishGoalReached(false);
       break;
     case rclcpp_action::ResultCode::CANCELED:
+      if (suppressed_cancel_results_ > 0) {
+        --suppressed_cancel_results_;
+        RCLCPP_INFO(get_logger(), "Goal canceled by ArUco goal updater");
+        break;
+      }
       RCLCPP_INFO(get_logger(), "Goal canceled");
+      publishGoalReached(false);
       break;
     default:
       break;

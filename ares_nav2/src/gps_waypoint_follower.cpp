@@ -122,15 +122,50 @@ namespace ares_nav2 {
             return;
         }
 
-        RCLCPP_INFO(this->get_logger(), "YOLO target TF detected during spiral search. Switching to YOLO approach.");
+        if (!currentWaypointHasYoloTarget()) {
+            return;
+        }
+
+        RCLCPP_INFO(this->get_logger(),
+                    "YOLO target '%s' detected during spiral search! Interrupting spiral search.",
+                    waypoints_[goal_index_].yolo.c_str());
         cancelCurrentGoal();
 
         spiral_search_active_ = false;
         spiral_index_ = 0;
         spiral_waypoints_.clear();
 
-        activateYoloTargetForCurrentWaypoint();
         waiting_for_yolo_goal_ = true;
+        activateYoloTargetForCurrentWaypoint();
+        RCLCPP_INFO(this->get_logger(), "Spiral search interrupted. Waiting for YOLO approach to finish.");
+    }
+
+    void GPSWaypointFollower::restartSpiralSearchAfterTargetLost(const std::string& target_name) {
+        if (goal_index_ >= waypoints_.size()) {
+            return;
+        }
+
+        if (spiral_search_active_) {
+            return;
+        }
+
+        waiting_for_aruco_goal_ = false;
+        waiting_for_yolo_goal_ = false;
+        spiral_index_ = 0;
+        spiral_waypoints_.clear();
+
+        if (currentWaypointHasArucoTarget()) {
+            activateArucoTargetForCurrentWaypoint();
+        }
+        if (currentWaypointHasYoloTarget()) {
+            activateYoloTargetForCurrentWaypoint();
+        }
+
+        RCLCPP_WARN(this->get_logger(),
+                    "%s target approach failed or was canceled after TF was found. Restarting spiral search for waypoint %zu.",
+                    target_name.c_str(), goal_index_ + 1);
+        startSpiralSearch();
+        sendNextGoal();
     }
 
     bool GPSWaypointFollower::currentWaypointHasArucoTarget() const {
@@ -247,6 +282,9 @@ namespace ares_nav2 {
 
     void GPSWaypointFollower::onArucoGoalReached(const std_msgs::msg::Bool::SharedPtr msg) {
         if (!msg->data) {
+            if (waiting_for_aruco_goal_ || aruco_target_active_) {
+                restartSpiralSearchAfterTargetLost("ArUco");
+            }
             return;
         }
 
@@ -275,12 +313,31 @@ namespace ares_nav2 {
     }
 
     void GPSWaypointFollower::onYoloGoalReached(const std_msgs::msg::Bool::SharedPtr msg) {
-        if (!msg->data || !waiting_for_yolo_goal_) {
+        if (!msg->data) {
+            if (waiting_for_yolo_goal_ || yolo_target_active_) {
+                restartSpiralSearchAfterTargetLost("YOLO");
+            }
             return;
         }
 
-        RCLCPP_INFO(this->get_logger(), "YOLO goal reached for waypoint %zu. Proceeding to next waypoint.",
-                    goal_index_ + 1);
+        const bool should_handle =
+            waiting_for_yolo_goal_ || spiral_search_active_ || yolo_target_active_;
+        if (!should_handle) {
+            return;
+        }
+
+        if (spiral_search_active_) {
+            RCLCPP_INFO(this->get_logger(),
+                        "YOLO goal reached while spiral search is active. Canceling spiral search and proceeding to next waypoint.");
+            cancelCurrentGoal();
+            spiral_search_active_ = false;
+            spiral_index_ = 0;
+            spiral_waypoints_.clear();
+        } else {
+            RCLCPP_INFO(this->get_logger(), "YOLO goal reached for waypoint %zu. Proceeding to next waypoint.",
+                        goal_index_ + 1);
+        }
+
         waiting_for_yolo_goal_ = false;
         deactivateYoloTarget();
         goal_index_++;
@@ -326,22 +383,26 @@ namespace ares_nav2 {
         }
         if (spiral_search_active_) {
             if (spiral_index_ >= spiral_waypoints_.size()) {
-                RCLCPP_INFO(this->get_logger(), "Spiral ...");
+                RCLCPP_INFO(this->get_logger(), "Spiral search finished without finding the requested target.");
                 spiral_search_active_ = false;
                 spiral_index_ = 0;
+                spiral_waypoints_.clear();
+
                 if (aruco_target_active_) {
-                    waiting_for_aruco_goal_ = true;
-                    RCLCPP_INFO(this->get_logger(), "Spiral search finished. Waiting for marker_id=%d to be approached.",
+                    RCLCPP_WARN(this->get_logger(),
+                                "ArUco marker_id=%d was not found during spiral search. Proceeding to the next waypoint.",
                                 waypoints_[goal_index_].marker_id);
-                    return;
+                    waiting_for_aruco_goal_ = false;
+                    deactivateArucoTarget();
                 }
                 if (currentWaypointHasYoloTarget()) {
-                    activateYoloTargetForCurrentWaypoint();
-                    waiting_for_yolo_goal_ = true;
-                    RCLCPP_INFO(this->get_logger(), "Spiral search finished. Waiting for YOLO target '%s'.",
+                    RCLCPP_WARN(this->get_logger(),
+                                "YOLO target '%s' was not found during spiral search. Proceeding to the next waypoint.",
                                 waypoints_[goal_index_].yolo.c_str());
-                    return;
+                    waiting_for_yolo_goal_ = false;
+                    deactivateYoloTarget();
                 }
+
                 goal_index_++;
                 sendNextGoal();
                 return;
@@ -475,6 +536,9 @@ namespace ares_nav2 {
         }
 
         if (currentWaypointHasYoloTarget() && isCurrentYoloTargetVisible()) {
+            RCLCPP_INFO(this->get_logger(),
+                        "YOLO target '%s' became visible during spiral search. Switching from spiral goal to YOLO goal.",
+                        waypoints_[goal_index_].yolo.c_str());
             interruptSpiralSearchForYolo();
         }
     }
@@ -485,10 +549,13 @@ namespace ares_nav2 {
         }
 
         try {
+            const auto& target_frame = waypoints_[goal_index_].yolo;
             auto transform = tf_buffer_->lookupTransform(
-                "map", waypoints_[goal_index_].yolo, tf2::TimePointZero);
+                "map", target_frame, tf2::TimePointZero);
 
-            if (yolo_tf_max_age_sec_ > 0.0 && transform.header.stamp.sec != 0) {
+            const bool has_stamp =
+                transform.header.stamp.sec != 0 || transform.header.stamp.nanosec != 0;
+            if (yolo_tf_max_age_sec_ > 0.0 && has_stamp) {
                 const double tf_age = (this->now() - rclcpp::Time(transform.header.stamp)).seconds();
                 if (tf_age > yolo_tf_max_age_sec_) {
                     return false;

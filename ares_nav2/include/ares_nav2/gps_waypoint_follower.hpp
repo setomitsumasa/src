@@ -117,6 +117,7 @@ private:
     void cancelCurrentGoal();
     void interruptSpiralSearch();
     void interruptSpiralSearchForYolo();
+    void restartSpiralSearchAfterTargetLost(const std::string& target_name);
     void activateArucoTargetForCurrentWaypoint();
     void deactivateArucoTarget();
     bool currentWaypointHasArucoTarget() const;

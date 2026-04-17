@@ -181,9 +181,9 @@ local_costmap:
           marking: True
           data_type: "LaserScan"
           raytrace_max_range: 8.0
-          raytrace_min_range: 1.5
-          obstacle_max_range: 6.0
-          obstacle_min_range: 1.5
+          raytrace_min_range: 1.0
+          obstacle_max_range: 7.0
+          obstacle_min_range: 1.0
       always_send_full_costmap: True
 
 # GPS WPF CHANGE: Remove static layer
@@ -216,10 +216,10 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 5.0
-          raytrace_min_range: 1.5
-          obstacle_max_range: 5.0
-          obstacle_min_range: 1.5
+          raytrace_max_range: 8.0
+          raytrace_min_range: 1.0
+          obstacle_max_range: 7.0
+          obstacle_min_range: 1.0
           # outdoors there will probably be more inf points
           inf_is_valid: true
       inflation_layer:
