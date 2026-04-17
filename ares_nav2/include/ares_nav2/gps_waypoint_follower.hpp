@@ -17,6 +17,7 @@
 #include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include <fstream>
 #include <vector>
 #include <string>
 #include <optional>
@@ -63,6 +64,12 @@ public:
 
 
 private:
+    enum class MissionLogLevel {
+        Info,
+        Warn,
+        Error
+    };
+
     // ROS2 interfaces
     rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr marker_detected_sub_;
@@ -94,12 +101,19 @@ private:
     int latest_detected_marker_id_{-1};
     bool has_recent_aruco_detection_{false};
     rclcpp::Time last_aruco_detection_time_{0, 0, RCL_ROS_TIME};
+    bool mission_log_to_file_{true};
+    std::string mission_log_directory_{"mission_logs"};
+    std::string mission_log_path_;
+    std::ofstream mission_log_file_;
+    std::mutex mission_log_mutex_;
 
     // Spiral search parameters
     bool spiral_search_active_{false};
     SpiralParams spiral_params_;
     std::vector<LocalPose2D> spiral_waypoints_;
     size_t spiral_index_{0};
+    size_t spiral_count_waypoint_index_{static_cast<size_t>(-1)};
+    int spiral_attempt_count_{0};
 
     // Goal handle management
     std::mutex goal_handle_mutex_;
@@ -134,6 +148,13 @@ private:
 
     // helpers
     geometry_msgs::msg::PoseStamped makePoseStamped(double x, double y, double yaw) const;
+    void openMissionLogFile();
+    void missionLog(
+        MissionLogLevel level,
+        const std::string& phase,
+        const std::string& message);
+    std::string missionContext() const;
+    std::string wallTimeString(const char* format) const;
 };
 } // namespace ares_nav2
 
