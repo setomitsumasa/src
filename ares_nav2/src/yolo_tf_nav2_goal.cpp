@@ -16,6 +16,7 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
 : rclcpp::Node("yolo_tf_nav2_goal", options)
 {
   declare_parameter<std::string>("target_frame", "map");
+  declare_parameter<std::string>("robot_base_frame", "base_link");
   declare_parameter<std::string>("target_frame_topic", "/yolo/target_frame");
   declare_parameter<std::string>("goal_reached_topic", "/yolo/goal_reached");
   declare_parameter<std::string>("inactive_value", "disable");
@@ -23,10 +24,13 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
   declare_parameter<double>("goal_send_interval_sec", 1.0);
   declare_parameter<double>("goal_update_threshold", 0.3);
   declare_parameter<double>("max_tf_age_sec", 0.5);
+  declare_parameter<double>("goal_hold_time_sec", 5.0);
+  declare_parameter<double>("goal_tolerance", 1.5);
   declare_parameter<double>("timer_period_sec", 0.2);
   declare_parameter<bool>("send_only_once", false);
 
   target_frame_ = get_parameter("target_frame").get_value<std::string>();
+  robot_base_frame_ = get_parameter("robot_base_frame").get_value<std::string>();
   target_frame_topic_ = get_parameter("target_frame_topic").get_value<std::string>();
   goal_reached_topic_ = get_parameter("goal_reached_topic").get_value<std::string>();
   inactive_value_ = get_parameter("inactive_value").get_value<std::string>();
@@ -34,6 +38,8 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
   goal_send_interval_sec_ = get_parameter("goal_send_interval_sec").get_value<double>();
   goal_update_threshold_ = get_parameter("goal_update_threshold").get_value<double>();
   max_tf_age_sec_ = get_parameter("max_tf_age_sec").get_value<double>();
+  goal_hold_time_sec_ = get_parameter("goal_hold_time_sec").get_value<double>();
+  goal_tolerance_ = get_parameter("goal_tolerance").get_value<double>();
   const double timer_period = get_parameter("timer_period_sec").get_value<double>();
   send_only_once_ = get_parameter("send_only_once").get_value<bool>();
 
@@ -55,13 +61,19 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
 
   RCLCPP_INFO(
     get_logger(),
-    "yolo_tf_nav2_goal: target_frame=%s, target_frame_topic=%s, inactive_value=%s",
-    target_frame_.c_str(), target_frame_topic_.c_str(), inactive_value_.c_str());
+    "yolo_tf_nav2_goal: target_frame=%s, robot_base_frame=%s, target_frame_topic=%s, inactive_value=%s, hold=%.1fs, goal_tolerance=%.2fm",
+    target_frame_.c_str(), robot_base_frame_.c_str(), target_frame_topic_.c_str(),
+    inactive_value_.c_str(), goal_hold_time_sec_, goal_tolerance_);
 }
 
 void YoloTfNav2Goal::resetTrackingState()
 {
   cancelCurrentGoal();
+  if (goal_hold_timer_) {
+    goal_hold_timer_->cancel();
+    goal_hold_timer_.reset();
+  }
+  waiting_after_goal_reached_ = false;
   goal_sent_once_ = false;
   last_goal_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   last_goal_x_ = 0.0;
@@ -88,7 +100,7 @@ void YoloTfNav2Goal::onTargetFrame(const std_msgs::msg::String::SharedPtr msg)
 
 void YoloTfNav2Goal::onTimer()
 {
-  if (tracked_frame_.empty()) {
+  if (tracked_frame_.empty() || waiting_after_goal_reached_) {
     return;
   }
 
@@ -107,6 +119,27 @@ void YoloTfNav2Goal::onTimer()
         get_logger(), "Skipping stale TF for '%s' (age=%.3fs)", tracked_frame_.c_str(), tf_age);
       return;
     }
+  }
+
+  try {
+    const auto relative_transform = tf_buffer_->lookupTransform(
+      robot_base_frame_, tracked_frame_, tf2::TimePointZero);
+    const double distance_to_target = std::hypot(
+      relative_transform.transform.translation.x,
+      relative_transform.transform.translation.y);
+
+    if (distance_to_target <= goal_tolerance_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "\033[32mReached YOLO goal by distance threshold: target is %.2fm away (tolerance %.2fm)\033[0m",
+        distance_to_target, goal_tolerance_);
+      waiting_after_goal_reached_ = true;
+      cancelCurrentGoal();
+      markGoalReached();
+      return;
+    }
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_DEBUG(get_logger(), "Robot-to-YOLO TF lookup failed for '%s': %s", tracked_frame_.c_str(), ex.what());
   }
 
   if (send_only_once_ && goal_sent_once_) {
@@ -192,6 +225,31 @@ void YoloTfNav2Goal::onGoalResponse(GoalHandleNavigateToPose::SharedPtr handle)
   RCLCPP_INFO(get_logger(), "YOLO TF goal accepted");
 }
 
+void YoloTfNav2Goal::markGoalReached()
+{
+  if (goal_hold_time_sec_ > 0.0) {
+    RCLCPP_INFO(get_logger(), "Holding position for %.1f seconds at YOLO goal", goal_hold_time_sec_);
+  }
+
+  goal_hold_timer_ = create_wall_timer(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::duration<double>(std::max(0.0, goal_hold_time_sec_))),
+    [this]() {
+      if (goal_hold_timer_) {
+        goal_hold_timer_->cancel();
+        goal_hold_timer_.reset();
+      }
+
+      std_msgs::msg::Bool msg;
+      msg.data = true;
+      goal_reached_pub_->publish(msg);
+
+      waiting_after_goal_reached_ = false;
+      tracked_frame_.clear();
+      resetTrackingState();
+    });
+}
+
 void YoloTfNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & result)
 {
   {
@@ -201,15 +259,10 @@ void YoloTfNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & re
 
   switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:
-    {
-      std_msgs::msg::Bool msg;
-      msg.data = true;
-      goal_reached_pub_->publish(msg);
-      RCLCPP_INFO(get_logger(), "Reached YOLO TF goal '%s'", tracked_frame_.c_str());
-      tracked_frame_.clear();
-      resetTrackingState();
+      RCLCPP_INFO(get_logger(), "\033[32mReached YOLO TF goal\033[0m");
+      waiting_after_goal_reached_ = true;
+      markGoalReached();
       break;
-    }
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_WARN(get_logger(), "YOLO TF goal aborted");
       break;

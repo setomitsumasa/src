@@ -37,15 +37,18 @@ private:
   void onResult(const GoalHandleNavigateToPose::WrappedResult & result);
   void cancelCurrentGoal();
   void resetTrackingState();
+  void markGoalReached();
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr goal_hold_timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr target_frame_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
 
   std::string target_frame_;
+  std::string robot_base_frame_;
   std::string tracked_frame_;
   std::string inactive_value_;
   std::string target_frame_topic_;
@@ -54,6 +57,8 @@ private:
   double goal_send_interval_sec_;
   double goal_update_threshold_;
   double max_tf_age_sec_;
+  double goal_hold_time_sec_;
+  double goal_tolerance_;
   bool send_only_once_;
 
   std::mutex goal_mutex_;
@@ -63,6 +68,7 @@ private:
   double last_goal_x_{0.0};
   double last_goal_y_{0.0};
   bool has_last_goal_{false};
+  bool waiting_after_goal_reached_{false};
 };
 
 }  // namespace ares_nav2

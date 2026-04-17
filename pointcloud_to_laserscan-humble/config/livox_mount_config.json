@@ -1,0 +1,16 @@
+{
+  "target_frame": "base_link",
+  "mount_parent_frame": "base_link",
+  "sensor_frame": "livox_frame",
+  "publish_static_tf": false,
+  "translation_m": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "rotation_deg": {
+    "roll": 0.0,
+    "pitch": 0.0,
+    "yaw": 0.0
+  }
+}

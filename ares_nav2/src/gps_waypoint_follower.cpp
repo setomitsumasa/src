@@ -564,9 +564,19 @@ namespace ares_nav2 {
             return;
         }
 
+        if (goal_index_ < waypoints_.size() && currentWaypointHasYoloTarget()) {
+            activateYoloTargetForCurrentWaypoint();
+            if (isCurrentYoloTargetVisible()) {
+                waiting_for_yolo_goal_ = true;
+                RCLCPP_INFO(this->get_logger(),
+                            "Reached GPS waypoint %zu. YOLO target '%s' is already visible, skipping spiral search.",
+                            goal_index_ + 1, waypoints_[goal_index_].yolo.c_str());
+                return;
+            }
+        }
+
         if (shouldStartSpiralSearch()) {
             if (goal_index_ < waypoints_.size() && currentWaypointHasYoloTarget()) {
-                activateYoloTargetForCurrentWaypoint();
                 RCLCPP_INFO(this->get_logger(), "Reached GPS waypoint %zu. Starting spiral search before YOLO approach.",
                             goal_index_ + 1);
             }
