@@ -6,7 +6,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <sensor_msgs/msg/imu.hpp>
-#include <tf2/LinearMath/Quaternion.h>
 
 #include <array>
 #include <limits>
@@ -51,7 +50,6 @@ public:
 
         // publish 周期（Hz）: sensor_tf.cpp と同様にパラメータ指定可
         const int publish_rate = this->declare_parameter<int>("publish_rate", 50);
-        tilt_alpha_ = this->declare_parameter<double>("tilt_alpha", 0.2);
         timer_ = this->create_wall_timer(
                 std::chrono::milliseconds(1000 / publish_rate),
                 std::bind(&UartImuNode::publishImu, this));
@@ -68,65 +66,22 @@ public:
 
 private:
     // コンパス方位(度, 0-360, 北=0, 時計回り)から
-    // ROS のヨー角（ENU, Z軸まわり）を生成
-    double headingDegToYawRad(double heading_deg) const
+    // ROS のヨー角（ENU, Z軸まわり）クォータニオンを生成（ロール・ピッチは0と仮定）
+    void yawDegToQuaternion(double heading_deg,
+                            double &qx, double &qy, double &qz, double &qw)
     {
         // heading: 北=0°, 東=90° の時計回り
         // ROS yaw: X=East, Y=North, yaw=0=East, 反時計回りが正
         // → yaw[rad] = (90 - heading_deg) * pi/180
         double yaw_rad = (90.0 - heading_deg) * M_PI / 180.0;
         // [-pi, pi] に正規化（必須ではないが念のため）
-        return std::fmod(yaw_rad + 3.0 * M_PI, 2.0 * M_PI) - M_PI;
-    }
+        yaw_rad = std::fmod(yaw_rad + 3.0 * M_PI, 2.0 * M_PI) - M_PI;
+        const double half_yaw = yaw_rad / 2.0;
 
-    void rpyToQuaternion(double roll_rad, double pitch_rad, double yaw_rad,
-                         double &qx, double &qy, double &qz, double &qw) const
-    {
-        tf2::Quaternion quat;
-        quat.setRPY(roll_rad, pitch_rad, yaw_rad);
-        quat.normalize();
-        qx = quat.x();
-        qy = quat.y();
-        qz = quat.z();
-        qw = quat.w();
-    }
-
-    bool updateTiltEstimate(double &roll_rad, double &pitch_rad)
-    {
-        const double ax = accel_[0];
-        const double ay = accel_[1];
-        const double az = accel_[2];
-
-        if (!std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az)) {
-            return tilt_initialized_;
-        }
-
-        const double norm = std::sqrt(ax * ax + ay * ay + az * az);
-        if (norm < 1e-6) {
-            return tilt_initialized_;
-        }
-
-        const double nx = ax / norm;
-        const double ny = ay / norm;
-        const double nz = az / norm;
-
-        const double measured_roll = std::atan2(ny, nz);
-        const double measured_pitch = std::atan2(-nx, std::sqrt(ny * ny + nz * nz));
-
-        if (!tilt_initialized_) {
-            filtered_roll_rad_ = measured_roll;
-            filtered_pitch_rad_ = measured_pitch;
-            tilt_initialized_ = true;
-        } else {
-            filtered_roll_rad_ =
-                (1.0 - tilt_alpha_) * filtered_roll_rad_ + tilt_alpha_ * measured_roll;
-            filtered_pitch_rad_ =
-                (1.0 - tilt_alpha_) * filtered_pitch_rad_ + tilt_alpha_ * measured_pitch;
-        }
-
-        roll_rad = filtered_roll_rad_;
-        pitch_rad = filtered_pitch_rad_;
-        return true;
+        qx = 0.0;
+        qy = 0.0;
+        qz = std::sin(half_yaw);
+        qw = std::cos(half_yaw);
     }
 
     void uartCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
@@ -174,24 +129,14 @@ private:
         imu_msg.header.stamp = this->get_clock()->now();
         imu_msg.header.frame_id = "imu_link";  // 必要に応じて変更
 
-        double roll_rad = 0.0;
-        double pitch_rad = 0.0;
-        updateTiltEstimate(roll_rad, pitch_rad);
-
-        double yaw_rad = 0.0;
-        if (std::isfinite(yaw_deg_)) {
-            yaw_rad = headingDegToYawRad(yaw_deg_);
-        }
-
-        // `/uart_data` の加速度から roll/pitch、ID 412 のヨー角から yaw を生成
-        rpyToQuaternion(roll_rad, pitch_rad, yaw_rad,
-                        imu_msg.orientation.x,
-                        imu_msg.orientation.y,
-                        imu_msg.orientation.z,
-                        imu_msg.orientation.w);
-        imu_msg.orientation_covariance[0] = 1e-2;
-        imu_msg.orientation_covariance[4] = 1e-2;
-        imu_msg.orientation_covariance[8] = 1e-2;
+        // `/uart_data` の ID 412 のヨー角からクォータニオンを計算して設定
+        yawDegToQuaternion(yaw_deg_,
+                           imu_msg.orientation.x,
+                           imu_msg.orientation.y,
+                           imu_msg.orientation.z,
+                           imu_msg.orientation.w);
+        // とりあえず共分散は 0（既知だが信頼度は未調整）
+        imu_msg.orientation_covariance[0] = 1e-3;
 
         // 角速度
         imu_msg.angular_velocity.x = gyro_[0];
@@ -216,10 +161,6 @@ private:
 
     // ヘディング（度）
     double yaw_deg_;
-    double tilt_alpha_ = 0.2;
-    double filtered_roll_rad_ = 0.0;
-    double filtered_pitch_rad_ = 0.0;
-    bool tilt_initialized_ = false;
 };
 
 int main(int argc, char * argv[])
