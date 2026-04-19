@@ -83,7 +83,7 @@ PointCloudToLaserScanNode::PointCloudToLaserScanNode(const rclcpp::NodeOptions &
   inf_epsilon_ = this->declare_parameter("inf_epsilon", 1.0);
   use_inf_ = this->declare_parameter("use_inf", true);
   apply_slope_filter_ = this->declare_parameter("apply_slope_filter", true);
-  max_slope_angle_ = this->declare_parameter("max_slope_angle", 40.0) * M_PI / 180.0;
+  max_slope_angle_ = this->declare_parameter("max_slope_angle", 15.0) * M_PI / 180.0;
   normal_k_search_ = this->declare_parameter("normal_k_search", 20);
   voxel_leaf_size_ = this->declare_parameter("voxel_leaf_size", 0.11);
   //search_radius_ = this->declare_parameter("search_radius", 0.15); //ksearchの代わり
