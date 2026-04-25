@@ -1,13 +1,18 @@
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    qos_profile_sensor_data,
+    QoSProfile,
+    ReliabilityPolicy,
+    HistoryPolicy,
+    DurabilityPolicy,
+)
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 
 from ultralytics import YOLO
 import os
-from ament_index_python.packages import get_package_share_directory
-from std_msgs.msg import String, Int16MultiArray
+from std_msgs.msg import String, Int16MultiArray, Bool
 from geometry_msgs.msg import Twist, TransformStamped
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
@@ -18,6 +23,33 @@ import math
 import json
 import numpy as np
 
+
+def resolve_model_path():
+    model_name = 'train260205s_best.pt'
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    package_root = os.path.dirname(module_dir)
+    candidates = []
+
+    current_dir = module_dir
+    while True:
+        if os.path.basename(current_dir) == 'install':
+            workspace_root = os.path.dirname(current_dir)
+            candidates.append(os.path.join(workspace_root, 'src', 'YOLO_detection_v2', model_name))
+            break
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+
+    candidates.append(os.path.join(package_root, model_name))
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    raise FileNotFoundError(
+        f'YOLO model not found. Tried: {candidates}'
+    )
 
 
 
@@ -30,8 +62,34 @@ class Make_YOLOtf(Node):
         self.depth_scale = None
         self.fx = None
         self.fy = None
+        self.model = None
+        self.model_path = resolve_model_path()
+        self.yolo_enabled = False
+        self.max_publish_rate_hz = self.declare_parameter(
+            'max_publish_rate_hz', 10.0
+        ).value
+        self.max_log_rate_hz = self.declare_parameter(
+            'max_log_rate_hz', 10.0
+        ).value
+        self._publish_interval_ns = self._rate_to_interval_ns(self.max_publish_rate_hz)
+        self._log_interval_ns = self._rate_to_interval_ns(self.max_log_rate_hz)
+        self._last_detection_publish_ns = 0
+        self._last_log_times_ns = {}
+
+        latched_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
 
         # Subscriber の作成
+        self.yolo_enabled_subscription = self.create_subscription(
+            Bool,
+            '/yolo/enabled',
+            self.yolo_enabled_callback,
+            latched_qos)
+
         self.realsense_info_subscription = self.create_subscription(
             String,
             'realsense_info',
@@ -56,11 +114,6 @@ class Make_YOLOtf(Node):
             self.bgr_callback,
             qos_profile_sensor_data)
 
-        # Load YOLO model
-        self.package_dir = get_package_share_directory('YOLO_detection_v2')
-        self.model_path = os.path.join(self.package_dir, 'train260205s_best.pt')
-        self.model = YOLO(self.model_path)
-
         # 検出履歴の初期化
         self.detection_history = [
             {'class': None, 'confidence': None, 'box': [], 'TF_success': False, 'real_world_cordinates': [None, None, None], 'real_world_width': None, 'real_world_height': None},
@@ -68,7 +121,7 @@ class Make_YOLOtf(Node):
         ]
 
         # Publisher の作成
-        self.detection_publisher = self.create_publisher(String, 'detection', 10)
+        self.detection_publisher = self.create_publisher(String, 'bounding_box', 10)
 
         # TF は TransformBroadcaster で /tf に publish（sensor_tf.cpp と同様）
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -95,6 +148,58 @@ class Make_YOLOtf(Node):
             2: {'class': 'bottle', 'size': [0.04,0.27]}, #bottle
         }
 
+    def _rate_to_interval_ns(self, rate_hz):
+        if rate_hz is None or rate_hz <= 0.0:
+            return 0
+        return int(1e9 / rate_hz)
+
+    def _now_ns(self):
+        return self.get_clock().now().nanoseconds
+
+    def _should_run(self, last_time_ns, interval_ns):
+        if interval_ns <= 0:
+            return True
+        return (self._now_ns() - last_time_ns) >= interval_ns
+
+    def log_info_limited(self, key, message):
+        last_time_ns = self._last_log_times_ns.get(key, 0)
+        if self._should_run(last_time_ns, self._log_interval_ns):
+            self._last_log_times_ns[key] = self._now_ns()
+            self.get_logger().info(message)
+
+    def publish_detection_limited(self, detection):
+        if not self._should_run(self._last_detection_publish_ns, self._publish_interval_ns):
+            return
+
+        string_msg = String()
+        string_msg.data = str(detection)
+        self.detection_publisher.publish(string_msg)
+        self._last_detection_publish_ns = self._now_ns()
+
+    def yolo_enabled_callback(self, data):
+        enabled = bool(data.data)
+        if enabled == self.yolo_enabled:
+            return
+
+        self.yolo_enabled = enabled
+        if enabled:
+            self.ensure_model_loaded()
+            self.get_logger().info(f'YOLO enabled. model_path={self.model_path}')
+        else:
+            self.model = None
+            self.depth_data = None
+            self.detection_history = [
+                {'class': None, 'confidence': None, 'box': [], 'TF_success': False, 'real_world_cordinates': [None, None, None], 'real_world_width': None, 'real_world_height': None},
+                {'class': None, 'confidence': None, 'box': [], 'TF_success': False, 'real_world_cordinates': [None, None, None], 'real_world_width': None, 'real_world_height': None},
+            ]
+            self._last_detection_publish_ns = 0
+            self._last_log_times_ns.clear()
+            self.get_logger().info('YOLO disabled. Unloaded model and stopped image processing.')
+
+    def ensure_model_loaded(self):
+        if self.model is None:
+            self.model = YOLO(self.model_path)
+
 
 
     # RealSenseの情報を取得するcallback関数
@@ -113,27 +218,39 @@ class Make_YOLOtf(Node):
 
     # 深度データを取得するcallback関数
     def depth_callback(self, raw_depth_data):
+        if not self.yolo_enabled:
+            return
         self.depth_data = self.cv_bridge.imgmsg_to_cv2(raw_depth_data, desired_encoding='16UC1')
 
 
 
     # BGRデータを取得しdepthデータとともに検出結果を取得し、TFをpublishするcallback関数
     def bgr_callback(self, raw_bgr_data):
+        if not self.yolo_enabled:
+            return
+
+        self.ensure_model_loaded()
+
         # BGR 形式の画像データを OpenCV 形式に変換
         self.bgr_data = self.cv_bridge.imgmsg_to_cv2(raw_bgr_data, desired_encoding='bgr8')
 
         if self.depth_data is None:
-            self.get_logger().info('Depth image has not been received yet')
+            self.log_info_limited('depth_not_ready', 'Depth image has not been received yet')
             return
 
         if self.depth_scale is None or self.fx is None or self.fy is None:
-            self.get_logger().info(
+            self.log_info_limited(
+                'camera_params_not_ready',
                 f'Camera/depth parameters have not been received yet '
                 f'(depth_scale={self.depth_scale}, fx={self.fx}, fy={self.fy})'
             )
             return
 
         highest_confidence_detection =self.detection(self.bgr_data)
+
+        # バウンディングボックスの publish 周期を制限する
+        self.publish_detection_limited(highest_confidence_detection)
+
         # 検出なしの場合
         if highest_confidence_detection['class'] is None:
             TF_success = False
@@ -142,12 +259,17 @@ class Make_YOLOtf(Node):
             real_world_z = None
             real_world_width = None
             real_world_height = None
-            self.get_logger().info('No YOLOtf')
+            self.log_info_limited('no_yolotf', 'No YOLOtf')
         # 検出ありの場合
         else:
             # 物体の実世界座標を計算
             TF_success, real_world_x, real_world_y, real_world_z, real_world_width, real_world_height = self.measure_dimensions(self.depth_data, highest_confidence_detection['box'], self.depth_scale, self.fx, self.fy)
-            self.get_logger().info(f'TF_success: {TF_success}, real_world_x: {real_world_x}, real_world_y: {real_world_y}, real_world_z: {real_world_z}, real_world_width: {real_world_width}, real_world_height: {real_world_height}')
+            self.log_info_limited(
+                'tf_measurement',
+                f'TF_success: {TF_success}, real_world_x: {real_world_x}, '
+                f'real_world_y: {real_world_y}, real_world_z: {real_world_z}, '
+                f'real_world_width: {real_world_width}, real_world_height: {real_world_height}'
+            )
 
         # 検出結果を履歴に更新
         self.detection_history[1] = self.detection_history[0]
@@ -177,14 +299,17 @@ class Make_YOLOtf(Node):
             tf_msg.transform.rotation.w = 1.0
             self.tf_broadcaster.sendTransform(tf_msg)
         else:
-            self.get_logger().info('not publishing TF')
+            self.log_info_limited('not_publishing_tf', 'not publishing TF')
 
 
     # 物体を検出し、最も確信度の高い検出結果を返す
     def detection(self, bgr_data):
         # 推論
         results = self.model(bgr_data, iou=0.6)
-        self.get_logger().info(f'cls={results[0].boxes.cls}, conf={results[0].boxes.conf}, box={results[0].boxes.xyxy}')
+        self.log_info_limited(
+            'raw_detection',
+            f'cls={results[0].boxes.cls}, conf={results[0].boxes.conf}, box={results[0].boxes.xyxy}'
+        )
 
         # 推論結果をリスト形式で構築
         detection = {
@@ -193,7 +318,7 @@ class Make_YOLOtf(Node):
             'box': [0.0, 0.0, 0.0, 0.0]
         }
         if len(results[0].boxes) == 0: # 検出なし
-            self.get_logger().info('No detections found')
+            self.log_info_limited('no_detections', 'No detections found')
         else:
             for i in range(len(results[0].boxes)):
                 box_xyxy = results[0].boxes.xyxy[i].tolist()
@@ -206,7 +331,10 @@ class Make_YOLOtf(Node):
                 if i_detection['confidence'] >= detection['confidence']:
                     detection = i_detection
 
-            self.get_logger().info(f'highest confidence detection: {detection}')
+            self.log_info_limited(
+                'highest_confidence_detection',
+                f'highest confidence detection: {detection}'
+            )
         
         return detection
 

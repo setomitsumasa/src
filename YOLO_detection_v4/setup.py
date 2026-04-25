@@ -1,7 +1,6 @@
 from setuptools import find_packages, setup
-from glob import glob
 
-package_name = 'realsense_from_lib'
+package_name = 'YOLO_detection_v4'
 
 setup(
     name=package_name,
@@ -11,7 +10,6 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -26,8 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'publish_realsense = realsense_from_lib.publish_realsense:main',
-            'encode_image = realsense_from_lib.encode_image:main',
+            'make_detection = YOLO_detection_v4.YOLO_detection:main',
         ],
     },
 )

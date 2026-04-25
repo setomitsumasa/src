@@ -191,22 +191,10 @@ public:
       "/aruco/enabled", rclcpp::QoS(1).reliable().transient_local(),
       std::bind(&ArucoTracker::callback_enabled, this, std::placeholders::_1));
 
-    rmw_qos_profile_t image_sub_qos = rmw_qos_profile_default;
-    image_sub_qos.reliability =
-      static_cast<rmw_qos_reliability_policy_t>(image_sub_qos_reliability_);
-    image_sub_qos.durability = static_cast<rmw_qos_durability_policy_t>(image_sub_qos_durability_);
-    image_sub_qos.depth = image_sub_qos_depth_;
-
-    auto qos = rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(image_sub_qos), image_sub_qos);
-
-    if (image_sub_compressed_) {
-      compressed_img_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
-        image_topic + "/compressed", qos, std::bind(
-          &ArucoTracker::callback_compressed_image, this, std::placeholders::_1));
+    if (processing_enabled_) {
+      ensure_image_subscription();
     } else {
-      img_sub_ = create_subscription<sensor_msgs::msg::Image>(
-        image_topic, qos, std::bind(
-          &ArucoTracker::callback_image, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Aruco processing disabled, image subscription is inactive");
     }
 
     return LifecycleNodeInterface::CallbackReturn::SUCCESS;
@@ -268,6 +256,43 @@ public:
   }
 
 protected:
+  void reset_image_subscription()
+  {
+    img_sub_.reset();
+    compressed_img_sub_.reset();
+    last_msg_stamp_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+  }
+
+  void ensure_image_subscription()
+  {
+    if (img_sub_ || compressed_img_sub_) {
+      return;
+    }
+
+    std::string image_topic = rclcpp::expand_topic_or_service_name(
+      cam_base_topic_, this->get_name(), this->get_namespace());
+
+    rmw_qos_profile_t image_sub_qos = rmw_qos_profile_default;
+    image_sub_qos.reliability =
+      static_cast<rmw_qos_reliability_policy_t>(image_sub_qos_reliability_);
+    image_sub_qos.durability = static_cast<rmw_qos_durability_policy_t>(image_sub_qos_durability_);
+    image_sub_qos.depth = image_sub_qos_depth_;
+
+    auto qos = rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(image_sub_qos), image_sub_qos);
+
+    if (image_sub_compressed_) {
+      compressed_img_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+        image_topic + "/compressed", qos, std::bind(
+          &ArucoTracker::callback_compressed_image, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed to compressed image topic for ArUco processing");
+    } else {
+      img_sub_ = create_subscription<sensor_msgs::msg::Image>(
+        image_topic, qos, std::bind(
+          &ArucoTracker::callback_image, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed to image topic for ArUco processing");
+    }
+  }
+
   void declare_parameters()
   {
     declare_param(*this, "cam_base_topic", "camera/image_raw");
@@ -340,6 +365,11 @@ protected:
     }
 
     processing_enabled_ = msg->data;
+    if (processing_enabled_) {
+      ensure_image_subscription();
+    } else {
+      reset_image_subscription();
+    }
     RCLCPP_INFO_STREAM(
       get_logger(), "Aruco processing " <<
       (processing_enabled_ ? "enabled" : "disabled"));

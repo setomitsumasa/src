@@ -39,17 +39,23 @@ private:
   void onTargetMarkerId(const std_msgs::msg::Int32::SharedPtr msg);
   void onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg);
   void resetTrackingState();
+  void markGoalReached();
+  void publishGoalReached(bool reached);
+  bool hasActiveGoal();
+  bool isTargetActive() const;
+  bool isRobotWithinGoalTolerance(const geometry_msgs::msg::PoseStamped & pose) const;
 
   // ROS
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr goal_hold_timer_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_marker_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr detected_marker_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
 
-  void cancelCurrentGoal();
+  void cancelCurrentGoal(bool suppress_cancel_result = true);
 
   // Parameters
   std::string target_frame_;
@@ -57,8 +63,11 @@ private:
   std::string robot_base_frame_;
   double goal_send_interval_sec_;
   double goal_update_threshold_;
+  double max_tf_age_sec_;
+  double goal_hold_time_sec_;
   double goal_tolerance_;
   bool send_only_once_;
+  bool follow_any_detected_marker_;
   std::string navigate_to_pose_action_;
   std::string target_marker_topic_;
   std::string detected_marker_topic_;
@@ -75,6 +84,11 @@ private:
   int target_marker_id_{-1};
   int detected_marker_id_{-1};
   bool has_detected_marker_id_{false};
+  bool waiting_after_goal_reached_{false};
+  int suppressed_cancel_results_{0};
+  geometry_msgs::msg::PoseStamped cached_target_pose_;
+  bool has_cached_target_pose_{false};
+  rclcpp::Time cached_target_pose_time_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace ares_nav2

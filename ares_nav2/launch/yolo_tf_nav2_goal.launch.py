@@ -17,7 +17,7 @@ def generate_launch_description():
     )
     goal_update_threshold_arg = DeclareLaunchArgument(
         "goal_update_threshold",
-        default_value="0.3",
+        default_value="1.5",
         description="TFがこの距離(m)以上動いたらゴール更新する",
     )
     max_tf_age_arg = DeclareLaunchArgument(

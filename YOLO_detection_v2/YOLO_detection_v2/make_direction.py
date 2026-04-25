@@ -6,12 +6,40 @@ from cv_bridge import CvBridge
 
 from ultralytics import YOLO
 import os
-from ament_index_python.packages import get_package_share_directory
 
 
 from std_msgs.msg import String, Int16MultiArray
 from geometry_msgs.msg import Twist
 import math
+
+
+def resolve_model_path():
+    model_name = 'train260205s_best.pt'
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    package_root = os.path.dirname(module_dir)
+    candidates = []
+
+    current_dir = module_dir
+    while True:
+        if os.path.basename(current_dir) == 'install':
+            workspace_root = os.path.dirname(current_dir)
+            candidates.append(os.path.join(workspace_root, 'src', 'YOLO_detection_v2', model_name))
+            break
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+
+    candidates.append(os.path.join(package_root, model_name))
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    raise FileNotFoundError(
+        f'YOLO model not found. Tried: {candidates}'
+    )
+
 
 class Make_direction(Node):
 
@@ -27,8 +55,7 @@ class Make_direction(Node):
             qos_profile_sensor_data)
         
         # Load YOLO model
-        self.package_dir = get_package_share_directory('YOLO_detection_v2')
-        self.model_path = os.path.join(self.package_dir, 'train260205s_best.pt')
+        self.model_path = resolve_model_path()
         self.model = YOLO(self.model_path)
 
         # 検出履歴の初期化

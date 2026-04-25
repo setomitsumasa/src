@@ -14,6 +14,7 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from cv_bridge import CvBridge
 import numpy as np
 import json
+import time
 try:
     import pyrealsense2 as rs
 except ImportError:
@@ -185,6 +186,7 @@ class RealSensePublisherNode(Node):
         color_image = np.asanyarray(color_frame.get_data())
         depth_image = np.asanyarray(depth_frame.get_data())
 
+        # 現在時刻を ROS2 の時間形式に変換
         stamp = self.get_clock().now().to_msg()
 
         # BGR8 で配信（RViz2 や OpenCV 系ツールでそのまま正しく表示される）

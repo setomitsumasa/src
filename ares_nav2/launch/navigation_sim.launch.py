@@ -13,15 +13,26 @@
 # limitations under the License.
 
 import os
+import importlib.util
 from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 from launch import LaunchDescription
 from launch.substitutions import LaunchConfiguration, EnvironmentVariable
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, SetEnvironmentVariable
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 from launch.conditions import IfCondition
 from nav2_common.launch import RewrittenYaml
+
+
+_logger_utils_path = os.path.join(os.path.dirname(__file__), 'logger_utils.py')
+_logger_utils_spec = importlib.util.spec_from_file_location(
+    'ares_nav2_launch_logger_utils',
+    _logger_utils_path,
+)
+_logger_utils = importlib.util.module_from_spec(_logger_utils_spec)
+_logger_utils_spec.loader.exec_module(_logger_utils)
+make_logger_actions = _logger_utils.make_logger_actions
 
 
 def generate_launch_description():
@@ -90,11 +101,12 @@ def generate_launch_description():
         }.items(),
     )
 
-    # IMU RPY publisher launch include
-    imu_rpy_publisher_cmd = IncludeLaunchDescription(
+    # Sim用 sensor_data 起動（sim_imu_node, imu_rpy_publisher, sensor_tf_node）
+    sensor_data_publisher_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory('ares_sensor'), 'launch', 'imu_rpy_publisher.launch.py')
-        )
+            os.path.join(get_package_share_directory('ares_sensor'), 'launch', 'sensor_data_publisher.launch.py')
+        ),
+        launch_arguments={'sim': 'true'}.items(),
     )
 
     # ArUco tracker launch include
@@ -113,18 +125,33 @@ def generate_launch_description():
         }.items()
     )
 
-
-
     # Create the launch description and populate
     ld = LaunchDescription()
 
+    for action in make_logger_actions(
+        'navigation_sim',
+        [
+            '/gps/fix',
+            '/imu/data',
+            '/imu/yaw',
+            '/odometry/gps',
+            '/odometry/local',
+            '/odometry/global',
+            '/scan',
+            '/cmd_vel',
+            '/aruco/id',
+            '/tf',
+            '/tf_static',
+        ],
+    ):
+        ld.add_action(action)
 
     ld.add_action(robot_localization_cmd)
 
     # navigation2 launch
     ld.add_action(navigation2_cmd)
-    # imu rpy publisher launch
-    ld.add_action(imu_rpy_publisher_cmd)
+    # sensor data launch for simulation
+    ld.add_action(sensor_data_publisher_cmd)
     # aruco tracker launch
     ld.add_action(aruco_tracker_cmd)
     # sample pointcloud_to_laserscan launch

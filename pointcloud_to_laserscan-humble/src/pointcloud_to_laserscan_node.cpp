@@ -40,7 +40,9 @@
 
 #include "pointcloud_to_laserscan/pointcloud_to_laserscan_node.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -48,6 +50,12 @@
 #include <thread>
 #include <utility>
 
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2_sensor_msgs/tf2_sensor_msgs.hpp"
 #include "tf2_ros/create_timer_ros.h"
@@ -74,8 +82,15 @@ PointCloudToLaserScanNode::PointCloudToLaserScanNode(const rclcpp::NodeOptions &
   range_max_ = this->declare_parameter("range_max", std::numeric_limits<double>::max());
   inf_epsilon_ = this->declare_parameter("inf_epsilon", 1.0);
   use_inf_ = this->declare_parameter("use_inf", true);
+  apply_slope_filter_ = this->declare_parameter("apply_slope_filter", true);
+  max_slope_angle_ = this->declare_parameter("max_slope_angle", 15.0) * M_PI / 180.0;
+  normal_k_search_ = this->declare_parameter("normal_k_search", 20);
+  voxel_leaf_size_ = this->declare_parameter("voxel_leaf_size", 0.11);
+  //search_radius_ = this->declare_parameter("search_radius", 0.15); //ksearchの代わり
 
-  pub_ = this->create_publisher<sensor_msgs::msg::LaserScan>("scan", rclcpp::SensorDataQoS());
+  pub_ = this->create_publisher<sensor_msgs::msg::LaserScan>("scan", 10);
+  filtered_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("angle_filtered_pointcloud", 10);
+  corrected_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("corrected_pointcloud", 10);
 
   using std::placeholders::_1;
   // if pointcloud target frame specified, we need to filter by transform availability
@@ -111,13 +126,18 @@ void PointCloudToLaserScanNode::subscriptionListenerThreadLoop()
 
   const std::chrono::milliseconds timeout(100);
   while (rclcpp::ok(context) && alive_.load()) {
-    int subscription_count = pub_->get_subscription_count() +
-      pub_->get_intra_process_subscription_count();
+    int subscription_count =
+      pub_->get_subscription_count() +
+      pub_->get_intra_process_subscription_count() +
+      filtered_cloud_pub_->get_subscription_count() +
+      filtered_cloud_pub_->get_intra_process_subscription_count() +
+      corrected_cloud_pub_->get_subscription_count() +
+      corrected_cloud_pub_->get_intra_process_subscription_count();
     if (subscription_count > 0) {
       if (!sub_.getSubscriber()) {
         RCLCPP_INFO(
           this->get_logger(),
-          "Got a subscriber to laserscan, starting pointcloud subscriber");
+          "Got a subscriber to filtered outputs, starting pointcloud subscriber");
         rclcpp::SensorDataQoS qos;
         qos.keep_last(input_queue_size_);
         sub_.subscribe(this, "cloud_in", qos.get_rmw_qos_profile());
@@ -125,7 +145,7 @@ void PointCloudToLaserScanNode::subscriptionListenerThreadLoop()
     } else if (sub_.getSubscriber()) {
       RCLCPP_INFO(
         this->get_logger(),
-        "No subscribers to laserscan, shutting down pointcloud subscriber");
+        "No subscribers to filtered outputs, shutting down pointcloud subscriber");
       sub_.unsubscribe();
     }
     rclcpp::Event::SharedPtr event = this->get_graph_event();
@@ -175,58 +195,101 @@ void PointCloudToLaserScanNode::cloudCallback(
     }
   }
 
-  // Iterate through pointcloud
-  for (sensor_msgs::PointCloud2ConstIterator<float> iter_x(*cloud_msg, "x"),
-    iter_y(*cloud_msg, "y"), iter_z(*cloud_msg, "z");
-    iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z)
-  {
-    if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z)) {
-      RCLCPP_DEBUG(
-        this->get_logger(),
-        "rejected for nan in point(%f, %f, %f)\n",
-        *iter_x, *iter_y, *iter_z);
+  corrected_cloud_pub_->publish(*cloud_msg);
+
+  // Convert cloud to PCL and optionally apply the slope filter before creating LaserScan.
+  pcl::PointCloud<pcl::PointXYZ> pcl_cloud;
+  pcl::fromROSMsg(*cloud_msg, pcl_cloud);
+
+  pcl::PointCloud<pcl::PointXYZ> filtered_pcl;
+  filtered_pcl.is_dense = false;
+  filtered_pcl.width = 0;
+  filtered_pcl.height = 1;
+
+  if (apply_slope_filter_) {
+    pcl::PointCloud<pcl::PointXYZ> downsampled_cloud;
+    if (voxel_leaf_size_ > 0.0 && pcl_cloud.points.size() > 0) {
+      pcl::VoxelGrid<pcl::PointXYZ> vg;
+      vg.setInputCloud(pcl_cloud.makeShared());
+      vg.setLeafSize(
+        static_cast<float>(voxel_leaf_size_),
+        static_cast<float>(voxel_leaf_size_),
+        static_cast<float>(voxel_leaf_size_));
+      vg.filter(downsampled_cloud);
+      downsampled_cloud.header = pcl_cloud.header;
+    } else {
+      downsampled_cloud = pcl_cloud;
+    }
+
+    pcl::PointCloud<pcl::Normal> normals;
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+    ne.setInputCloud(downsampled_cloud.makeShared());
+    ne.setSearchMethod(tree);
+    //ne.setRadiusSearch(search_radius_); // normal_k_search_の代わり
+    ne.setKSearch(normal_k_search_);
+    ne.compute(normals);
+
+    filtered_pcl.header = downsampled_cloud.header;
+    for (size_t i = 0; i < downsampled_cloud.points.size() && i < normals.points.size(); ++i) {
+      const auto & pt = downsampled_cloud.points[i];
+      const auto & normal = normals.points[i];
+      if (!pcl::isFinite(pt) || !pcl::isFinite(normal)) {
+        continue;
+      }
+
+      if (pt.z > max_height_ || pt.z < min_height_) {
+        continue;
+      }
+
+      double nz = normal.normal_z;
+      double slope_angle = std::acos(std::clamp(std::fabs(nz), 0.0, 1.0));
+      if (slope_angle <= max_slope_angle_) {
+        continue;
+      }
+
+      filtered_pcl.points.push_back(pt);
+    }
+  } else {
+    filtered_pcl = pcl_cloud;
+  }
+
+  filtered_pcl.width = filtered_pcl.points.size();
+  filtered_pcl.height = filtered_pcl.width > 0 ? 1 : 0;
+
+  sensor_msgs::msg::PointCloud2 filtered_cloud_msg;
+  pcl::toROSMsg(filtered_pcl, filtered_cloud_msg);
+  filtered_cloud_msg.header = cloud_msg->header;
+  filtered_cloud_pub_->publish(filtered_cloud_msg);
+
+  // Iterate filtered points to build laserscan output
+  for (const auto & pt : filtered_pcl.points) {
+    if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
       continue;
     }
 
-    if (*iter_z > max_height_ || *iter_z < min_height_) {
-      RCLCPP_DEBUG(
-        this->get_logger(),
-        "rejected for height %f not in range (%f, %f)\n",
-        *iter_z, min_height_, max_height_);
-      continue;
-    }
-
-    double range = hypot(*iter_x, *iter_y);
+    double range = hypot(pt.x, pt.y);
     if (range < range_min_) {
-      RCLCPP_DEBUG(
-        this->get_logger(),
-        "rejected for range %f below minimum value %f. Point: (%f, %f, %f)",
-        range, range_min_, *iter_x, *iter_y, *iter_z);
       continue;
     }
     if (range > range_max_) {
-      RCLCPP_DEBUG(
-        this->get_logger(),
-        "rejected for range %f above maximum value %f. Point: (%f, %f, %f)",
-        range, range_max_, *iter_x, *iter_y, *iter_z);
       continue;
     }
 
-    double angle = atan2(*iter_y, *iter_x);
+    double angle = atan2(pt.y, pt.x);
     if (angle < scan_msg->angle_min || angle > scan_msg->angle_max) {
-      RCLCPP_DEBUG(
-        this->get_logger(),
-        "rejected for angle %f not in range (%f, %f)\n",
-        angle, scan_msg->angle_min, scan_msg->angle_max);
       continue;
     }
 
-    // overwrite range at laserscan ray if new range is smaller
     int index = (angle - scan_msg->angle_min) / scan_msg->angle_increment;
+    if (index < 0 || static_cast<size_t>(index) >= scan_msg->ranges.size()) {
+      continue;
+    }
     if (range < scan_msg->ranges[index]) {
       scan_msg->ranges[index] = range;
     }
   }
+
   pub_->publish(std::move(scan_msg));
 }
 

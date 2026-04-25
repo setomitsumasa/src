@@ -1,4 +1,8 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.conditions import UnlessCondition
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import launch
 import launch_ros.actions
@@ -15,11 +19,24 @@ def generate_launch_description() -> LaunchDescription:
     """
     return launch.LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "sim",
+                default_value="false",
+                description="true のとき UART GPS/IMU ノードを起動しない",
+            ),
             # UART-IMU ノード（/uart_data -> /imu/data: sensor_msgs/Imu）
             launch_ros.actions.Node(
                 package="ares_sensor",
                 executable="imu_node",
                 name="uart_imu_node",
+                condition=UnlessCondition(LaunchConfiguration("sim")),
+            ),
+            # シミュレータ用 IMU ノード（/imu -> /imu/data）
+            launch_ros.actions.Node(
+                package="ares_sensor",
+                executable="sim_imu_node",
+                name="sim_imu_node",
+                condition=IfCondition(LaunchConfiguration("sim")),
             ),
             # 既存 IMU RPY ノード
             launch_ros.actions.Node(
@@ -32,6 +49,7 @@ def generate_launch_description() -> LaunchDescription:
                 package="ares_sensor",
                 executable="gps_node",
                 name="uart_gps_node",
+                condition=UnlessCondition(LaunchConfiguration("sim")),
             ),
             # TF: map->odom, odom->base_link, odom->imu_link
             launch_ros.actions.Node(
@@ -41,4 +59,3 @@ def generate_launch_description() -> LaunchDescription:
             ),
         ]
     )
-

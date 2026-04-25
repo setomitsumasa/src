@@ -82,6 +82,8 @@ private:
   std::unique_ptr<tf2_ros::TransformListener> tf2_listener_;
   message_filters::Subscriber<sensor_msgs::msg::PointCloud2> sub_;
   std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::LaserScan>> pub_;
+  std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::PointCloud2>> filtered_cloud_pub_;
+  std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::PointCloud2>> corrected_cloud_pub_;
   std::unique_ptr<MessageFilter> message_filter_;
 
   std::thread subscription_listener_thread_;
@@ -94,7 +96,12 @@ private:
   double min_height_, max_height_, angle_min_, angle_max_, angle_increment_, scan_time_, range_min_,
     range_max_;
   bool use_inf_;
+  bool apply_slope_filter_;
   double inf_epsilon_;
+  double max_slope_angle_;
+  int normal_k_search_;
+  double voxel_leaf_size_;
+  double search_radius_; //上の代わり
 };
 
 }  // namespace pointcloud_to_laserscan
