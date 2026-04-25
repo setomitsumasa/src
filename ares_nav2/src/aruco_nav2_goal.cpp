@@ -79,6 +79,8 @@ void ArucoNav2Goal::resetTrackingState()
   last_goal_x_ = 0.0;
   last_goal_y_ = 0.0;
   has_last_goal_ = false;
+  has_cached_target_pose_ = false;
+  cached_target_pose_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
 }
 
 void ArucoNav2Goal::onTargetMarkerId(const std_msgs::msg::Int32::SharedPtr msg)
@@ -109,15 +111,18 @@ void ArucoNav2Goal::onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr m
 
 void ArucoNav2Goal::onTimer()
 {
+  const bool marker_matches = has_detected_marker_id_ &&
+    (follow_any_detected_marker_ || detected_marker_id_ == target_marker_id_);
+
   if (follow_any_detected_marker_) {
-    if (!has_detected_marker_id_) {
+    if (!has_detected_marker_id_ && !has_cached_target_pose_) {
       return;
     }
   } else {
     if (target_marker_id_ < 0) {
       return;
     }
-    if (!has_detected_marker_id_ || detected_marker_id_ != target_marker_id_) {
+    if (!marker_matches && !has_cached_target_pose_) {
       return;
     }
   }
@@ -126,77 +131,93 @@ void ArucoNav2Goal::onTimer()
     return;
   }
 
-  geometry_msgs::msg::TransformStamped transform;
-  try {
-    transform = tf_buffer_->lookupTransform(
-      target_frame_, aruco_frame_, tf2::TimePointZero);
-  } catch (const tf2::TransformException & ex) {
-    RCLCPP_DEBUG(get_logger(), "TF lookup failed: %s", ex.what());
-    return;
+  geometry_msgs::msg::PoseStamped target_pose;
+  bool using_cached_pose = true;
+
+  if (marker_matches) {
+    geometry_msgs::msg::TransformStamped transform;
+    try {
+      transform = tf_buffer_->lookupTransform(
+        target_frame_, aruco_frame_, tf2::TimePointZero);
+
+      bool fresh_tf = true;
+      const auto transform_stamp = rclcpp::Time(transform.header.stamp);
+      if (transform_stamp.nanoseconds() > 0) {
+        const double tf_age_sec = (now() - transform_stamp).seconds();
+        if (tf_age_sec > max_tf_age_sec_) {
+          fresh_tf = false;
+          RCLCPP_DEBUG(
+            get_logger(),
+            "Keeping cached ArUco goal because current TF is stale (age=%.3fs > %.3fs)",
+            tf_age_sec, max_tf_age_sec_);
+        }
+      } else if (follow_any_detected_marker_) {
+        fresh_tf = false;
+        RCLCPP_DEBUG(get_logger(), "Keeping cached ArUco goal because current TF has no timestamp");
+      }
+
+      if (fresh_tf) {
+        target_pose.header = transform.header;
+        target_pose.header.stamp = now();
+        target_pose.pose.position.x = transform.transform.translation.x;
+        target_pose.pose.position.y = transform.transform.translation.y;
+        target_pose.pose.position.z = transform.transform.translation.z;
+        target_pose.pose.orientation = transform.transform.rotation;
+        cached_target_pose_ = target_pose;
+        cached_target_pose_time_ = now();
+        has_cached_target_pose_ = true;
+        using_cached_pose = false;
+      }
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_DEBUG(get_logger(), "TF lookup failed: %s", ex.what());
+    }
   }
 
-  const auto transform_stamp = rclcpp::Time(transform.header.stamp);
-  if (transform_stamp.nanoseconds() > 0) {
-    const double tf_age_sec = (now() - transform_stamp).seconds();
-    if (tf_age_sec > max_tf_age_sec_) {
-      RCLCPP_DEBUG(
-        get_logger(),
-        "Ignoring stale ArUco TF (age=%.3fs > %.3fs)",
-        tf_age_sec, max_tf_age_sec_);
+  if (using_cached_pose) {
+    if (!has_cached_target_pose_) {
       return;
     }
-  } else if (follow_any_detected_marker_) {
-    RCLCPP_DEBUG(get_logger(), "Ignoring ArUco TF without timestamp");
+    target_pose = cached_target_pose_;
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Using cached ArUco goal: (%.2f, %.2f) in frame %s",
+      target_pose.pose.position.x, target_pose.pose.position.y,
+      target_pose.header.frame_id.c_str());
+  }
+
+  if (isRobotWithinGoalTolerance(target_pose)) {
+    waiting_after_goal_reached_ = true;
+    cancelCurrentGoal();
+    markGoalReached();
     return;
   }
 
-  try {
-    const auto relative_transform = tf_buffer_->lookupTransform(
-      robot_base_frame_, aruco_frame_, tf2::TimePointZero);
-    const double distance_to_marker = std::hypot(
-      relative_transform.transform.translation.x,
-      relative_transform.transform.translation.y);
-
-    if (distance_to_marker <= goal_tolerance_) {
-      RCLCPP_INFO(
-        get_logger(),
-        "\033[32mReached ArUco goal by distance threshold: marker is %.2fm away (tolerance %.2fm)\033[0m",
-        distance_to_marker, goal_tolerance_);
-      waiting_after_goal_reached_ = true;
-      cancelCurrentGoal();
-      markGoalReached();
-      return;
-    }
-  } catch (const tf2::TransformException & ex) {
-    RCLCPP_DEBUG(get_logger(), "Robot-to-ArUco TF lookup failed: %s", ex.what());
-  }
-
-  if (send_only_once_ && goal_sent_once_) {
-    return;
-  }
-
-  const double x = transform.transform.translation.x;
-  const double y = transform.transform.translation.y;
+  const double x = target_pose.pose.position.x;
+  const double y = target_pose.pose.position.y;
 
   const rclcpp::Time current_time = now();
   const bool interval_ok = (current_time - last_goal_time_).seconds() >= goal_send_interval_sec_;
   const bool moved = !has_last_goal_ ||
     (std::hypot(x - last_goal_x_, y - last_goal_y_) > goal_update_threshold_);
+  const bool active_goal = hasActiveGoal();
 
-  if (!interval_ok || !moved) {
+  if (send_only_once_ && goal_sent_once_ && active_goal) {
     return;
   }
 
-  cancelCurrentGoal();
+  if (active_goal && (!interval_ok || !moved)) {
+    return;
+  }
+  if (!active_goal && has_last_goal_ && !interval_ok && !moved) {
+    return;
+  }
 
-  geometry_msgs::msg::PoseStamped pose;
-  pose.header = transform.header;
-  pose.pose.position.x = x;
-  pose.pose.position.y = y;
-  pose.pose.position.z = transform.transform.translation.z;
-  pose.pose.orientation = transform.transform.rotation;
+  if (active_goal) {
+    cancelCurrentGoal();
+  }
 
-  sendGoal(pose);
+  target_pose.header.stamp = now();
+  sendGoal(target_pose);
   last_goal_time_ = current_time;
   last_goal_x_ = x;
   last_goal_y_ = y;
@@ -204,6 +225,52 @@ void ArucoNav2Goal::onTimer()
   if (send_only_once_) {
     goal_sent_once_ = true;
   }
+}
+
+bool ArucoNav2Goal::hasActiveGoal()
+{
+  std::lock_guard<std::mutex> lock(goal_mutex_);
+  if (!current_goal_handle_) {
+    return false;
+  }
+
+  const auto status = current_goal_handle_->get_status();
+  return status == rclcpp_action::GoalStatus::STATUS_EXECUTING ||
+    status == rclcpp_action::GoalStatus::STATUS_ACCEPTED;
+}
+
+bool ArucoNav2Goal::isTargetActive() const
+{
+  if (waiting_after_goal_reached_) {
+    return false;
+  }
+  if (follow_any_detected_marker_) {
+    return has_detected_marker_id_ || has_cached_target_pose_;
+  }
+  return target_marker_id_ >= 0;
+}
+
+bool ArucoNav2Goal::isRobotWithinGoalTolerance(
+  const geometry_msgs::msg::PoseStamped & pose) const
+{
+  try {
+    const auto robot_transform = tf_buffer_->lookupTransform(
+      pose.header.frame_id, robot_base_frame_, tf2::TimePointZero);
+    const double distance_to_target = std::hypot(
+      pose.pose.position.x - robot_transform.transform.translation.x,
+      pose.pose.position.y - robot_transform.transform.translation.y);
+
+    if (distance_to_target <= goal_tolerance_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "\033[32mReached ArUco goal by distance threshold: target is %.2fm away (tolerance %.2fm)\033[0m",
+        distance_to_target, goal_tolerance_);
+      return true;
+    }
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_DEBUG(get_logger(), "Robot pose TF lookup failed for ArUco goal: %s", ex.what());
+  }
+  return false;
 }
 
 void ArucoNav2Goal::cancelCurrentGoal(bool suppress_cancel_result)
@@ -302,12 +369,26 @@ void ArucoNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & res
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_WARN(get_logger(), "Goal aborted");
+      if (has_cached_target_pose_ && isTargetActive()) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Keeping ArUco target active; will retry cached goal at (%.2f, %.2f)",
+          cached_target_pose_.pose.position.x, cached_target_pose_.pose.position.y);
+        break;
+      }
       publishGoalReached(false);
       break;
     case rclcpp_action::ResultCode::CANCELED:
       if (suppressed_cancel_results_ > 0) {
         --suppressed_cancel_results_;
         RCLCPP_INFO(get_logger(), "Goal canceled by ArUco goal updater");
+        break;
+      }
+      if (has_cached_target_pose_ && isTargetActive()) {
+        RCLCPP_WARN(
+          get_logger(),
+          "ArUco goal was canceled while target is active; will continue toward cached goal at (%.2f, %.2f)",
+          cached_target_pose_.pose.position.x, cached_target_pose_.pose.position.y);
         break;
       }
       RCLCPP_INFO(get_logger(), "Goal canceled");

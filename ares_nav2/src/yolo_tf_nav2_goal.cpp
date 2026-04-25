@@ -79,6 +79,8 @@ void YoloTfNav2Goal::resetTrackingState()
   last_goal_x_ = 0.0;
   last_goal_y_ = 0.0;
   has_last_goal_ = false;
+  has_cached_target_pose_ = false;
+  cached_target_pose_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
 }
 
 void YoloTfNav2Goal::onTargetFrame(const std_msgs::msg::String::SharedPtr msg)
@@ -104,69 +106,83 @@ void YoloTfNav2Goal::onTimer()
     return;
   }
 
-  geometry_msgs::msg::TransformStamped transform;
+  geometry_msgs::msg::PoseStamped target_pose;
+  bool using_cached_pose = true;
+
   try {
-    transform = tf_buffer_->lookupTransform(target_frame_, tracked_frame_, tf2::TimePointZero);
+    const auto transform = tf_buffer_->lookupTransform(target_frame_, tracked_frame_, tf2::TimePointZero);
+    bool fresh_tf = true;
+    if (max_tf_age_sec_ > 0.0 && transform.header.stamp.sec != 0) {
+      const double tf_age = (now() - rclcpp::Time(transform.header.stamp)).seconds();
+      if (tf_age > max_tf_age_sec_) {
+        fresh_tf = false;
+        RCLCPP_DEBUG(
+          get_logger(),
+          "Keeping cached YOLO goal for '%s' because current TF is stale (age=%.3fs)",
+          tracked_frame_.c_str(), tf_age);
+      }
+    }
+
+    if (fresh_tf) {
+      target_pose.header = transform.header;
+      target_pose.header.stamp = now();
+      target_pose.pose.position.x = transform.transform.translation.x;
+      target_pose.pose.position.y = transform.transform.translation.y;
+      target_pose.pose.position.z = transform.transform.translation.z;
+      target_pose.pose.orientation = transform.transform.rotation;
+      cached_target_pose_ = target_pose;
+      cached_target_pose_time_ = now();
+      has_cached_target_pose_ = true;
+      using_cached_pose = false;
+    }
   } catch (const tf2::TransformException & ex) {
     RCLCPP_DEBUG(get_logger(), "TF lookup failed for '%s': %s", tracked_frame_.c_str(), ex.what());
+  }
+
+  if (using_cached_pose) {
+    if (!has_cached_target_pose_) {
+      return;
+    }
+    target_pose = cached_target_pose_;
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Using cached YOLO goal for '%s': (%.2f, %.2f) in frame %s",
+      tracked_frame_.c_str(), target_pose.pose.position.x, target_pose.pose.position.y,
+      target_pose.header.frame_id.c_str());
+  }
+
+  if (isRobotWithinGoalTolerance(target_pose)) {
+    waiting_after_goal_reached_ = true;
+    cancelCurrentGoal();
+    markGoalReached();
     return;
   }
 
-  if (max_tf_age_sec_ > 0.0 && transform.header.stamp.sec != 0) {
-    const double tf_age = (now() - rclcpp::Time(transform.header.stamp)).seconds();
-    if (tf_age > max_tf_age_sec_) {
-      RCLCPP_DEBUG(
-        get_logger(), "Skipping stale TF for '%s' (age=%.3fs)", tracked_frame_.c_str(), tf_age);
-      return;
-    }
-  }
-
-  try {
-    const auto relative_transform = tf_buffer_->lookupTransform(
-      robot_base_frame_, tracked_frame_, tf2::TimePointZero);
-    const double distance_to_target = std::hypot(
-      relative_transform.transform.translation.x,
-      relative_transform.transform.translation.y);
-
-    if (distance_to_target <= goal_tolerance_) {
-      RCLCPP_INFO(
-        get_logger(),
-        "\033[32mReached YOLO goal by distance threshold: target is %.2fm away (tolerance %.2fm)\033[0m",
-        distance_to_target, goal_tolerance_);
-      waiting_after_goal_reached_ = true;
-      cancelCurrentGoal();
-      markGoalReached();
-      return;
-    }
-  } catch (const tf2::TransformException & ex) {
-    RCLCPP_DEBUG(get_logger(), "Robot-to-YOLO TF lookup failed for '%s': %s", tracked_frame_.c_str(), ex.what());
-  }
-
-  if (send_only_once_ && goal_sent_once_) {
-    return;
-  }
-
-  const double x = transform.transform.translation.x;
-  const double y = transform.transform.translation.y;
+  const double x = target_pose.pose.position.x;
+  const double y = target_pose.pose.position.y;
   const rclcpp::Time current_time = now();
   const bool interval_ok = (current_time - last_goal_time_).seconds() >= goal_send_interval_sec_;
   const bool moved =
     !has_last_goal_ || (std::hypot(x - last_goal_x_, y - last_goal_y_) > goal_update_threshold_);
+  const bool active_goal = hasActiveGoal();
 
-  if (!interval_ok || !moved) {
+  if (send_only_once_ && goal_sent_once_ && active_goal) {
     return;
   }
 
-  cancelCurrentGoal();
+  if (active_goal && (!interval_ok || !moved)) {
+    return;
+  }
+  if (!active_goal && has_last_goal_ && !interval_ok && !moved) {
+    return;
+  }
 
-  geometry_msgs::msg::PoseStamped pose;
-  pose.header = transform.header;
-  pose.pose.position.x = x;
-  pose.pose.position.y = y;
-  pose.pose.position.z = transform.transform.translation.z;
-  pose.pose.orientation = transform.transform.rotation;
+  if (active_goal) {
+    cancelCurrentGoal();
+  }
 
-  sendGoal(pose);
+  target_pose.header.stamp = now();
+  sendGoal(target_pose);
   last_goal_time_ = current_time;
   last_goal_x_ = x;
   last_goal_y_ = y;
@@ -174,6 +190,48 @@ void YoloTfNav2Goal::onTimer()
   if (send_only_once_) {
     goal_sent_once_ = true;
   }
+}
+
+bool YoloTfNav2Goal::hasActiveGoal()
+{
+  std::lock_guard<std::mutex> lock(goal_mutex_);
+  if (!current_goal_handle_) {
+    return false;
+  }
+
+  const auto status = current_goal_handle_->get_status();
+  return status == rclcpp_action::GoalStatus::STATUS_EXECUTING ||
+    status == rclcpp_action::GoalStatus::STATUS_ACCEPTED;
+}
+
+bool YoloTfNav2Goal::isTargetActive() const
+{
+  return !tracked_frame_.empty() && !waiting_after_goal_reached_;
+}
+
+bool YoloTfNav2Goal::isRobotWithinGoalTolerance(
+  const geometry_msgs::msg::PoseStamped & pose) const
+{
+  try {
+    const auto robot_transform = tf_buffer_->lookupTransform(
+      pose.header.frame_id, robot_base_frame_, tf2::TimePointZero);
+    const double distance_to_target = std::hypot(
+      pose.pose.position.x - robot_transform.transform.translation.x,
+      pose.pose.position.y - robot_transform.transform.translation.y);
+
+    if (distance_to_target <= goal_tolerance_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "\033[32mReached YOLO goal by distance threshold: target is %.2fm away (tolerance %.2fm)\033[0m",
+        distance_to_target, goal_tolerance_);
+      return true;
+    }
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_DEBUG(
+      get_logger(), "Robot pose TF lookup failed for YOLO goal '%s': %s",
+      tracked_frame_.c_str(), ex.what());
+  }
+  return false;
 }
 
 void YoloTfNav2Goal::cancelCurrentGoal(bool suppress_cancel_result)
@@ -273,12 +331,28 @@ void YoloTfNav2Goal::onResult(const GoalHandleNavigateToPose::WrappedResult & re
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_WARN(get_logger(), "YOLO TF goal aborted");
+      if (has_cached_target_pose_ && isTargetActive()) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Keeping YOLO target '%s' active; will retry cached goal at (%.2f, %.2f)",
+          tracked_frame_.c_str(), cached_target_pose_.pose.position.x,
+          cached_target_pose_.pose.position.y);
+        break;
+      }
       publishGoalReached(false);
       break;
     case rclcpp_action::ResultCode::CANCELED:
       if (suppressed_cancel_results_ > 0) {
         --suppressed_cancel_results_;
         RCLCPP_INFO(get_logger(), "YOLO TF goal canceled by goal updater");
+        break;
+      }
+      if (has_cached_target_pose_ && isTargetActive()) {
+        RCLCPP_WARN(
+          get_logger(),
+          "YOLO TF goal was canceled while target '%s' is active; will continue toward cached goal at (%.2f, %.2f)",
+          tracked_frame_.c_str(), cached_target_pose_.pose.position.x,
+          cached_target_pose_.pose.position.y);
         break;
       }
       RCLCPP_INFO(get_logger(), "YOLO TF goal canceled");

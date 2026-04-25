@@ -39,6 +39,9 @@ private:
   void resetTrackingState();
   void markGoalReached();
   void publishGoalReached(bool reached);
+  bool hasActiveGoal();
+  bool isTargetActive() const;
+  bool isRobotWithinGoalTolerance(const geometry_msgs::msg::PoseStamped & pose) const;
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -71,6 +74,9 @@ private:
   bool has_last_goal_{false};
   bool waiting_after_goal_reached_{false};
   int suppressed_cancel_results_{0};
+  geometry_msgs::msg::PoseStamped cached_target_pose_;
+  bool has_cached_target_pose_{false};
+  rclcpp::Time cached_target_pose_time_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace ares_nav2
