@@ -139,3 +139,36 @@ src/
 - 実運用では `controller_bringup.launch.py`、`navigation_sim.launch.py`、`main.launch.py` を役割ごとに分けて起動します。
 - YOLO ノードは起動していても、`/yolo/enabled` が `false` の間は待機状態です。
 - ROS Humble と `cv_bridge` を使う都合上、Python 環境の NumPy は `numpy<2` が安全です。
+
+## Logger
+
+3つの主要 launch は標準出力・標準エラーの内容を自動で保存します。
+
+```bash
+ros2 launch ares_nav2 controller_bringup.launch.py
+ros2 launch ares_nav2 navigation_sim.launch.py
+ros2 launch ares_nav2 main.launch.py
+```
+
+保存先はデフォルトで次の形式です。
+
+```text
+logger/<launch名>/<YYYYmmdd_HHMMSS>/terminal.log
+logger/<launch名>/<YYYYmmdd_HHMMSS>/ros_launch_raw/
+```
+
+topic もデフォルトで rosbag2 に保存されます。
+
+```bash
+ros2 launch ares_nav2 main.launch.py
+```
+
+記録する topic を変更したい場合は、空白区切りで `logger_topics` を指定します。
+
+```bash
+ros2 launch ares_nav2 main.launch.py \
+  logger_topics:="/gps/fix /imu/data /cmd_vel /tf /tf_static"
+```
+
+保存先を変える場合は `logger_root:=/path/to/logs` を指定します。
+topic 保存を止めたい場合は `logger_record_topics:=false` を指定します。

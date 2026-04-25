@@ -13,18 +13,26 @@
 # limitations under the License.
 
 import os
-import shutil
-from datetime import datetime
+import importlib.util
 from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 from launch import LaunchDescription
-from launch.substitutions import LaunchConfiguration, EnvironmentVariable, LaunchLogDir
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, SetEnvironmentVariable, RegisterEventHandler, OpaqueFunction
+from launch.substitutions import LaunchConfiguration, EnvironmentVariable
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 from launch.conditions import IfCondition
-from launch.event_handlers import OnShutdown
 from nav2_common.launch import RewrittenYaml
+
+
+_logger_utils_path = os.path.join(os.path.dirname(__file__), 'logger_utils.py')
+_logger_utils_spec = importlib.util.spec_from_file_location(
+    'ares_nav2_launch_logger_utils',
+    _logger_utils_path,
+)
+_logger_utils = importlib.util.module_from_spec(_logger_utils_spec)
+_logger_utils_spec.loader.exec_module(_logger_utils)
+make_logger_actions = _logger_utils.make_logger_actions
 
 
 def generate_launch_description():
@@ -56,9 +64,6 @@ def generate_launch_description():
         param_rewrites=bt_substitutions,
         convert_types=True
     )
-
-    log_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    dated_log_filename = f'navigation_sim_{log_timestamp}.log'
 
     use_rviz = LaunchConfiguration('use_rviz')
 
@@ -120,31 +125,26 @@ def generate_launch_description():
         }.items()
     )
 
-    # Force all subprocess output to be shown on screen and persisted into launch.log.
-    set_process_output_mode_cmd = SetEnvironmentVariable(
-        'OVERRIDE_LAUNCH_PROCESS_OUTPUT', 'both'
-    )
-
-    def save_terminal_log(context, *args, **kwargs):
-        log_dir = LaunchLogDir().perform(context)
-        launch_log_path = os.path.join(log_dir, 'launch.log')
-        dated_log_path = os.path.join(log_dir, dated_log_filename)
-        if os.path.exists(launch_log_path):
-            shutil.copy2(launch_log_path, dated_log_path)
-            print(f'[navigation_sim] saved terminal log: {dated_log_path}')
-        else:
-            print(f'[navigation_sim] launch.log not found: {launch_log_path}')
-        return []
-
-    save_terminal_log_on_shutdown_cmd = RegisterEventHandler(
-        OnShutdown(on_shutdown=[OpaqueFunction(function=save_terminal_log)])
-    )
-
-
     # Create the launch description and populate
     ld = LaunchDescription()
 
-    ld.add_action(set_process_output_mode_cmd)
+    for action in make_logger_actions(
+        'navigation_sim',
+        [
+            '/gps/fix',
+            '/imu/data',
+            '/imu/yaw',
+            '/odometry/gps',
+            '/odometry/local',
+            '/odometry/global',
+            '/scan',
+            '/cmd_vel',
+            '/aruco/id',
+            '/tf',
+            '/tf_static',
+        ],
+    ):
+        ld.add_action(action)
 
     ld.add_action(robot_localization_cmd)
 
@@ -161,6 +161,5 @@ def generate_launch_description():
     ld.add_action(declare_use_rviz_cmd)
     ld.add_action(rviz_cmd)
     ld.add_action(declare_use_mapviz_cmd)
-    ld.add_action(save_terminal_log_on_shutdown_cmd)
 
     return ld
