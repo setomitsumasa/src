@@ -14,6 +14,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <cmath>
@@ -37,6 +38,10 @@ namespace ares_nav2 {
 	        mission_log_to_file_ = this->declare_parameter<bool>("mission_log_to_file", true);
 	        mission_log_directory_ = this->declare_parameter<std::string>(
 	            "mission_log_directory", "mission_logs");
+	        mission_status_topic_ = this->declare_parameter<std::string>(
+	            "mission_status_topic", "/mission/status");
+	        mission_status_period_sec_ = this->declare_parameter<double>(
+	            "mission_status_period_sec", 1.0);
 	        openMissionLogFile();
 	        tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -60,8 +65,13 @@ namespace ares_nav2 {
             "/yolo/enabled", rclcpp::QoS(1).reliable().transient_local());
         yolo_target_frame_pub_ = this->create_publisher<std_msgs::msg::String>(
             "/yolo/target_frame", rclcpp::QoS(1).reliable().transient_local());
+        mission_status_pub_ = this->create_publisher<std_msgs::msg::String>(
+            mission_status_topic_, rclcpp::QoS(1).reliable().transient_local());
 	        spiral_monitor_timer_ = this->create_wall_timer(
 	            200ms, std::bind(&GPSWaypointFollower::monitorSpiralTargets, this));
+	        mission_status_timer_ = this->create_wall_timer(
+	            std::chrono::duration<double>(std::max(0.1, mission_status_period_sec_)),
+	            std::bind(&GPSWaypointFollower::publishMissionStatus, this));
 	        deactivateArucoTarget();
 	        deactivateYoloTarget();
 	        {
@@ -136,10 +146,84 @@ namespace ares_nav2 {
 	        return oss.str();
 	    }
 
+	    std::string GPSWaypointFollower::missionLevelString(MissionLogLevel level) const {
+	        switch (level) {
+	            case MissionLogLevel::Warn:
+	                return "warn";
+	            case MissionLogLevel::Error:
+	                return "error";
+	            case MissionLogLevel::Info:
+	            default:
+	                return "info";
+	        }
+	    }
+
+	    std::string GPSWaypointFollower::missionResultString(
+	        MissionLogLevel level,
+	        const std::string& phase) const {
+	        if (phase == "MISSION_DONE" ||
+	            phase == "WAYPOINT_DONE" ||
+	            phase.find("REACHED") != std::string::npos) {
+	            return "success";
+	        }
+	        if (phase.find("CANCELED") != std::string::npos) {
+	            return "canceled";
+	        }
+	        if (level == MissionLogLevel::Error ||
+	            phase.find("ABORTED") != std::string::npos ||
+	            phase.find("REJECTED") != std::string::npos ||
+	            phase.find("UNAVAILABLE") != std::string::npos ||
+	            phase.find("FAILED") != std::string::npos) {
+	            return "failed";
+	        }
+	        if (level == MissionLogLevel::Warn) {
+	            return "warning";
+	        }
+	        return "running";
+	    }
+
+	    double GPSWaypointFollower::activeGoalElapsedSec() const {
+	        if (!has_active_goal_start_time_) {
+	            return 0.0;
+	        }
+	        return std::max(0.0, (this->now() - active_goal_start_time_).seconds());
+	    }
+
+	    void GPSWaypointFollower::setActiveGoalDescription(const std::string& description) {
+	        active_goal_description_ = description;
+	        active_goal_start_time_ = this->now();
+	        has_active_goal_start_time_ = true;
+	    }
+
+	    void GPSWaypointFollower::publishMissionStatus() {
+	        if (!mission_status_pub_) {
+	            return;
+	        }
+
+	        std_msgs::msg::String msg;
+	        std::ostringstream oss;
+	        oss << "[MISSION_STATUS]"
+	            << " local_time=" << wallTimeString("%Y-%m-%d %H:%M:%S")
+	            << " phase=" << last_mission_phase_
+	            << " level=" << last_mission_level_
+	            << " result=" << last_mission_result_
+	            << " elapsed_sec=" << std::fixed << std::setprecision(1)
+	            << activeGoalElapsedSec()
+	            << " active_goal=\"" << active_goal_description_ << "\""
+	            << " " << missionContext()
+	            << " | " << last_mission_message_;
+	        msg.data = oss.str();
+	        mission_status_pub_->publish(msg);
+	    }
+
 	    void GPSWaypointFollower::missionLog(
 	        MissionLogLevel level,
 	        const std::string& phase,
 	        const std::string& message) {
+	        last_mission_phase_ = phase;
+	        last_mission_message_ = message;
+	        last_mission_level_ = missionLevelString(level);
+	        last_mission_result_ = missionResultString(level, phase);
 	        std::ostringstream oss;
 	        oss << "[MISSION]"
 	            << " local_time=" << wallTimeString("%Y-%m-%d %H:%M:%S")
@@ -181,6 +265,7 @@ namespace ares_nav2 {
 	        if (mission_log_file_.is_open()) {
 	            mission_log_file_ << line << std::endl;
 	        }
+	        publishMissionStatus();
 	    }
 
 	    void GPSWaypointFollower::onGpsFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
@@ -248,6 +333,11 @@ namespace ares_nav2 {
         // 正しいマーカーが見つかったので、ArUco 接近ノードへ制御を渡す
 	        waiting_for_aruco_goal_ = true;
 	        activateArucoTargetForCurrentWaypoint();
+	        {
+	            std::ostringstream oss;
+	            oss << "ArUco approach marker_id=" << waypoints_[goal_index_].marker_id;
+	            setActiveGoalDescription(oss.str());
+	        }
 	        missionLog(MissionLogLevel::Info, "WAIT_ARUCO_APPROACH",
 	                   "Spiral search interrupted. Waiting for ArUco approach to finish.");
     }
@@ -275,6 +365,11 @@ namespace ares_nav2 {
 
 	        waiting_for_yolo_goal_ = true;
 	        activateYoloTargetForCurrentWaypoint();
+	        {
+	            std::ostringstream oss;
+	            oss << "YOLO approach target='" << waypoints_[goal_index_].yolo << "'";
+	            setActiveGoalDescription(oss.str());
+	        }
 	        missionLog(MissionLogLevel::Info, "WAIT_YOLO_APPROACH",
 	                   "Spiral search interrupted. Waiting for YOLO approach to finish.");
     }
@@ -580,6 +675,7 @@ namespace ares_nav2 {
 	                    << ": x=" << wp.x << ", y=" << wp.y << ", yaw=" << wp.yaw;
 	                last_sent_goal_log_ = oss.str();
 	            }
+	            setActiveGoalDescription(last_sent_goal_log_);
 	            missionLog(MissionLogLevel::Info, "SPIRAL_GOAL", last_sent_goal_log_);
 
 	            if (!action_client_->wait_for_action_server(2s)) {
@@ -606,6 +702,8 @@ namespace ares_nav2 {
         }
 	        // Gps waypoint navigation
 	        if (goal_index_ >= waypoints_.size()) {
+	            active_goal_description_ = "none";
+	            has_active_goal_start_time_ = false;
 	            missionLog(MissionLogLevel::Info, "MISSION_DONE", "All waypoints visited.");
 	            deactivateArucoTarget();
 	            deactivateYoloTarget();
@@ -629,6 +727,7 @@ namespace ares_nav2 {
                 << ", yaw=" << wp.yaw;
 	            last_sent_goal_log_ = oss.str();
 	        }
+	        setActiveGoalDescription(last_sent_goal_log_);
 	        missionLog(MissionLogLevel::Info, "GPS_GOAL", last_sent_goal_log_);
 
 	        if (!action_client_->wait_for_action_server(2s)) {
@@ -812,6 +911,12 @@ namespace ares_nav2 {
 	            if (isCurrentArucoTargetVisible()) {
 	                waiting_for_aruco_goal_ = true;
 	                {
+	                    std::ostringstream active_oss;
+	                    active_oss << "ArUco approach marker_id="
+	                        << waypoints_[goal_index_].marker_id;
+	                    setActiveGoalDescription(active_oss.str());
+	                }
+	                {
 	                    std::ostringstream oss;
 	                    oss << "Reached GPS waypoint. ArUco marker_id="
 	                        << waypoints_[goal_index_].marker_id
@@ -823,6 +928,12 @@ namespace ares_nav2 {
 	                sendNextGoal();
 	            } else {
 	                waiting_for_aruco_goal_ = true;
+	                {
+	                    std::ostringstream active_oss;
+	                    active_oss << "ArUco approach marker_id="
+	                        << waypoints_[goal_index_].marker_id;
+	                    setActiveGoalDescription(active_oss.str());
+	                }
 	                {
 	                    std::ostringstream oss;
 	                    oss << "Reached GPS waypoint. Waiting for ArUco marker_id="
@@ -837,6 +948,12 @@ namespace ares_nav2 {
             activateYoloTargetForCurrentWaypoint();
 	            if (isCurrentYoloTargetVisible()) {
 	                waiting_for_yolo_goal_ = true;
+	                {
+	                    std::ostringstream active_oss;
+	                    active_oss << "YOLO approach target='"
+	                        << waypoints_[goal_index_].yolo << "'";
+	                    setActiveGoalDescription(active_oss.str());
+	                }
 	                {
 	                    std::ostringstream oss;
 	                    oss << "Reached GPS waypoint. YOLO target '"
@@ -861,6 +978,12 @@ namespace ares_nav2 {
 	        if (goal_index_ < waypoints_.size() && currentWaypointHasYoloTarget()) {
 	            activateYoloTargetForCurrentWaypoint();
 	            waiting_for_yolo_goal_ = true;
+	            {
+	                std::ostringstream active_oss;
+	                active_oss << "YOLO approach target='"
+	                    << waypoints_[goal_index_].yolo << "'";
+	                setActiveGoalDescription(active_oss.str());
+	            }
 	            {
 	                std::ostringstream oss;
 	                oss << "Reached GPS waypoint. Waiting for YOLO target '"

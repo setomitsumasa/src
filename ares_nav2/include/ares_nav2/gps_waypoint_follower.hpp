@@ -81,7 +81,9 @@ private:
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr aruco_target_marker_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr yolo_enabled_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr yolo_target_frame_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mission_status_pub_;
     rclcpp::TimerBase::SharedPtr spiral_monitor_timer_;
+    rclcpp::TimerBase::SharedPtr mission_status_timer_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
@@ -103,9 +105,18 @@ private:
     rclcpp::Time last_aruco_detection_time_{0, 0, RCL_ROS_TIME};
     bool mission_log_to_file_{true};
     std::string mission_log_directory_{"mission_logs"};
+    std::string mission_status_topic_{"/mission/status"};
+    double mission_status_period_sec_{1.0};
     std::string mission_log_path_;
     std::ofstream mission_log_file_;
     std::mutex mission_log_mutex_;
+    std::string last_mission_phase_{"INIT"};
+    std::string last_mission_message_{"Starting mission node."};
+    std::string last_mission_level_{"info"};
+    std::string last_mission_result_{"running"};
+    std::string active_goal_description_{"none"};
+    rclcpp::Time active_goal_start_time_{0, 0, RCL_ROS_TIME};
+    bool has_active_goal_start_time_{false};
 
     // Spiral search parameters
     bool spiral_search_active_{false};
@@ -153,6 +164,11 @@ private:
         MissionLogLevel level,
         const std::string& phase,
         const std::string& message);
+    void publishMissionStatus();
+    void setActiveGoalDescription(const std::string& description);
+    std::string missionLevelString(MissionLogLevel level) const;
+    std::string missionResultString(MissionLogLevel level, const std::string& phase) const;
+    double activeGoalElapsedSec() const;
     std::string missionContext() const;
     std::string wallTimeString(const char* format) const;
 };

@@ -33,6 +33,7 @@ def generate_launch_description():
             '/aruco/goal_reached',
             '/yolo/target_frame',
             '/yolo/goal_reached',
+            '/mission/status',
             '/tf',
             '/tf_static',
         ],
@@ -55,6 +56,8 @@ def generate_launch_description():
             parameters=[{
                 'mission_log_directory': LaunchConfiguration('mission_log_directory'),
                 'mission_log_to_file': True,
+                'mission_status_topic': '/mission/status',
+                'mission_status_period_sec': 1.0,
             }])
     )
     ld.add_action(
