@@ -72,7 +72,10 @@ def generate_launch_description():
             package='ares_nav2',
             executable='yolo_tf_nav2_goal_node',
             name='yolo_tf_nav2_goal',
-            output='screen')
+            output='screen',
+            parameters=[{
+                'goal_tolerance': 1.5,
+            }])
     )
 
     return ld
