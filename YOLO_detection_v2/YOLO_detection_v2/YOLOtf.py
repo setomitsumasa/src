@@ -25,7 +25,7 @@ import numpy as np
 
 
 def resolve_model_path():
-    model_name = 'train260205s_best.pt'
+    model_name = 'train260426s_best.pt'
     module_dir = os.path.dirname(os.path.abspath(__file__))
     package_root = os.path.dirname(module_dir)
     candidates = []
