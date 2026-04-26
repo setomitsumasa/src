@@ -364,6 +364,7 @@ class Make_YOLOtf(Node):
 
         # 中央値深度 (メートル単位) - 距離D
         real_world_z = np.median(non_zero_depths) * depth_scale
+        self.get_logger().info(f'median depth (real_world_z): {real_world_z} m')
 
         center_x_roi = center_x - full_width/2
         center_y_roi = center_y - full_height/2
