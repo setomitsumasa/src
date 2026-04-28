@@ -63,12 +63,12 @@ private:
 
     std_msgs::msg::Int16MultiArray rover_cmd;
 
-    if (std::abs(direction_angle) < 0.3) {
-      rover_control_[0] = 180;
+    if (std::abs(direction_angle) < 0.3) {  // /cmd_velから受け取った-1~1の範囲の角度の値が -0.3 < 値 < 0.3なら
+      rover_control_[0] = 180; // 180が角度0, ステアの角度 + 180 = 送るデータ
       rover_control_[1] = velocity * 100 * 3.4 + 120;  // (-1 ~ 1) * 10 * 3 + 120
     } else if (direction_angle >= 0.3) {
       rover_control_[0] = (-direction_angle * 180.0 / M_PI) * 0.4 + 180;
-      rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120;
+      rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120; // 120がスピード0, 出したいスピード + 120 = 送るデータ
       angle_can_id_ = opposite_degree_R_id_;
     } else {
       rover_control_[0] = (-direction_angle * 180.0 / M_PI) * 0.4 + 180;
