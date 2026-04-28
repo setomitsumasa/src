@@ -24,8 +24,8 @@ public:
       "/cmd_vel", 10, std::bind(&Commander::cmdVelCallback, this, std::placeholders::_1));
     pub_ = create_publisher<std_msgs::msg::Int16MultiArray>("uart_command", 10);
 
-    rover_control_[0] = 0.0;
-    rover_control_[1] = 0.0;
+    rover_control_[0] = 0.0; // Rover steering Angle
+    rover_control_[1] = 0.0; // Rover tire speed
 
     opposite_degree_R_id_ = 0x310;
     opposite_degree_L_id_ = 0x311;
