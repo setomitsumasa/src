@@ -42,6 +42,14 @@ namespace ares_nav2 {
 	            "mission_status_topic", "/mission/status");
 	        mission_status_period_sec_ = this->declare_parameter<double>(
 	            "mission_status_period_sec", 1.0);
+	        spiral_spin_scan_enabled_ = this->declare_parameter<bool>(
+	            "spiral_spin_scan_enabled", true);
+	        spiral_spin_scan_total_angle_rad_ = this->declare_parameter<double>(
+	            "spiral_spin_scan_total_angle_rad", 2.0 * M_PI);
+	        spiral_spin_scan_angular_speed_rad_s_ = this->declare_parameter<double>(
+	            "spiral_spin_scan_angular_speed_rad_s", 0.5);
+	        spiral_spin_scan_direction_ = this->declare_parameter<int>(
+	            "spiral_spin_scan_direction", 1);
 	        openMissionLogFile();
 	        tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -67,6 +75,7 @@ namespace ares_nav2 {
             "/yolo/target_frame", rclcpp::QoS(1).reliable().transient_local());
         mission_status_pub_ = this->create_publisher<std_msgs::msg::String>(
             mission_status_topic_, rclcpp::QoS(1).reliable().transient_local());
+        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
 	        spiral_monitor_timer_ = this->create_wall_timer(
 	            200ms, std::bind(&GPSWaypointFollower::monitorSpiralTargets, this));
 	        mission_status_timer_ = this->create_wall_timer(
@@ -142,6 +151,7 @@ namespace ares_nav2 {
 	        } else {
 	            oss << " spiral_step=inactive";
 	        }
+	        oss << " spin_scan=" << (spiral_spin_scan_active_ ? "active" : "inactive");
 	        oss << " spiral_attempt=" << spiral_attempt_count_;
 	        return oss.str();
 	    }
@@ -323,6 +333,7 @@ namespace ares_nav2 {
 	            MissionLogLevel::Info,
 	            "HANDOFF_ARUCO",
 	            "Canceling current spiral goal and handing off to ArUco approach.");
+        stopSpiralSpinScan();
         cancelCurrentGoal();
 
         // Reset spiral search state
@@ -357,6 +368,7 @@ namespace ares_nav2 {
 	                << "' detected during spiral search. Interrupting spiral search.";
 	            missionLog(MissionLogLevel::Info, "TARGET_FOUND_YOLO", oss.str());
 	        }
+        stopSpiralSpinScan();
         cancelCurrentGoal();
 
         spiral_search_active_ = false;
@@ -385,6 +397,7 @@ namespace ares_nav2 {
 
         waiting_for_aruco_goal_ = false;
         waiting_for_yolo_goal_ = false;
+        stopSpiralSpinScan();
         spiral_index_ = 0;
         spiral_waypoints_.clear();
 
@@ -541,6 +554,7 @@ namespace ares_nav2 {
 	                MissionLogLevel::Info,
 	                "ARUCO_REACHED",
 	                "ArUco goal reached while spiral search is active. Canceling spiral search and proceeding to next waypoint.");
+	            stopSpiralSpinScan();
 	            cancelCurrentGoal();
 	            spiral_search_active_ = false;
 	            spiral_index_ = 0;
@@ -575,6 +589,7 @@ namespace ares_nav2 {
 	                MissionLogLevel::Info,
 	                "YOLO_REACHED",
 	                "YOLO goal reached while spiral search is active. Canceling spiral search and proceeding to next waypoint.");
+	            stopSpiralSpinScan();
 	            cancelCurrentGoal();
 	            spiral_search_active_ = false;
 	            spiral_index_ = 0;
@@ -630,12 +645,20 @@ namespace ares_nav2 {
 	                "Waiting for external target approach before sending the next GPS goal.");
 	            return;
 	        }
+	        if (spiral_spin_scan_active_) {
+	            missionLog(
+	                MissionLogLevel::Info,
+	                "WAIT_SPIRAL_SPIN_SCAN",
+	                "Holding next Nav2 goal while spiral spin scan is running.");
+	            return;
+	        }
 	        if (spiral_search_active_) {
 	            if (spiral_index_ >= spiral_waypoints_.size()) {
 	                missionLog(
 	                    MissionLogLevel::Warn,
 	                    "SPIRAL_FINISHED_NOT_FOUND",
 	                    "Spiral search finished without finding the requested target.");
+	                stopSpiralSpinScan();
 	                spiral_search_active_ = false;
 	                spiral_index_ = 0;
 	                spiral_waypoints_.clear();
@@ -778,6 +801,7 @@ namespace ares_nav2 {
 
 	        spiral_waypoints_.clear();
 	        spiral_waypoints_.reserve(static_cast<size_t>(spiral_params_.n_spiral));
+	        stopSpiralSpinScan();
 
         for (int i = 0; i < spiral_params_.n_spiral; ++i) {
             double r = spiral_params_.r0 + static_cast<double>(i) * spiral_params_.dr;
@@ -798,6 +822,94 @@ namespace ares_nav2 {
 	            missionLog(MissionLogLevel::Info, "SPIRAL_START", oss.str());
 	        }
 	    }
+
+    bool GPSWaypointFollower::shouldSpinScanAtSpiralPoint() const {
+        if (!spiral_spin_scan_enabled_) {
+            return false;
+        }
+        if (spiral_spin_scan_total_angle_rad_ <= 0.0 ||
+            spiral_spin_scan_angular_speed_rad_s_ <= 0.0) {
+            return false;
+        }
+        return currentWaypointHasArucoTarget() || currentWaypointHasYoloTarget();
+    }
+
+    double GPSWaypointFollower::spiralSpinScanDurationSec() const {
+        if (spiral_spin_scan_angular_speed_rad_s_ <= 0.0) {
+            return 0.0;
+        }
+        return std::abs(spiral_spin_scan_total_angle_rad_) /
+            spiral_spin_scan_angular_speed_rad_s_;
+    }
+
+    void GPSWaypointFollower::publishZeroCmdVel() {
+        if (!cmd_vel_pub_) {
+            return;
+        }
+        geometry_msgs::msg::Twist cmd;
+        cmd_vel_pub_->publish(cmd);
+    }
+
+    void GPSWaypointFollower::startSpiralSpinScan() {
+        if (!shouldSpinScanAtSpiralPoint()) {
+            return;
+        }
+
+        spiral_spin_scan_active_ = true;
+        spiral_spin_scan_start_time_ = this->now();
+
+        const double duration_sec = spiralSpinScanDurationSec();
+        {
+            std::ostringstream oss;
+            oss << "Starting in-place spin scan at spiral step "
+                << (spiral_index_ + 1) << "/" << spiral_waypoints_.size()
+                << " for " << duration_sec
+                << " sec, angular_speed="
+                << spiral_spin_scan_angular_speed_rad_s_
+                << " rad/s.";
+            missionLog(MissionLogLevel::Info, "SPIRAL_SPIN_SCAN_START", oss.str());
+        }
+        setActiveGoalDescription("spiral spin scan");
+    }
+
+    void GPSWaypointFollower::stopSpiralSpinScan() {
+        if (spiral_spin_scan_active_) {
+            publishZeroCmdVel();
+        }
+        spiral_spin_scan_active_ = false;
+        spiral_spin_scan_start_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }
+
+    void GPSWaypointFollower::updateSpiralSpinScan() {
+        if (!spiral_spin_scan_active_) {
+            return;
+        }
+
+        const double elapsed_sec =
+            (this->now() - spiral_spin_scan_start_time_).seconds();
+        const double duration_sec = spiralSpinScanDurationSec();
+        if (elapsed_sec >= duration_sec) {
+            stopSpiralSpinScan();
+            {
+                std::ostringstream oss;
+                oss << "Finished spin scan at spiral step "
+                    << (spiral_index_ + 1) << "/" << spiral_waypoints_.size()
+                    << " without seeing the target. Moving to the next spiral point.";
+                missionLog(MissionLogLevel::Info, "SPIRAL_SPIN_SCAN_DONE", oss.str());
+            }
+            ++spiral_index_;
+            sendNextGoal();
+            return;
+        }
+
+        if (!cmd_vel_pub_) {
+            return;
+        }
+        geometry_msgs::msg::Twist cmd;
+        const double direction = spiral_spin_scan_direction_ >= 0 ? 1.0 : -1.0;
+        cmd.angular.z = direction * spiral_spin_scan_angular_speed_rad_s_;
+        cmd_vel_pub_->publish(cmd);
+    }
 
     void GPSWaypointFollower::monitorSpiralTargets() {
         if (!spiral_search_active_ || goal_index_ >= waypoints_.size()) {
@@ -823,7 +935,10 @@ namespace ares_nav2 {
 	                missionLog(MissionLogLevel::Info, "TARGET_VISIBLE_YOLO", oss.str());
 	            }
 	            interruptSpiralSearchForYolo();
+	            return;
 	        }
+
+	        updateSpiralSpinScan();
 	    }
 
     bool GPSWaypointFollower::isCurrentYoloTargetVisible() const {
@@ -901,7 +1016,11 @@ namespace ares_nav2 {
 	                    << " on attempt " << spiral_attempt_count_ << ".";
 	                missionLog(MissionLogLevel::Info, "SPIRAL_STEP_REACHED", oss.str());
 	            }
-	            spiral_index_ ++;
+	            if (shouldSpinScanAtSpiralPoint()) {
+	                startSpiralSpinScan();
+	                return;
+	            }
+	            ++spiral_index_;
 	            sendNextGoal();
 	            return;
         }
