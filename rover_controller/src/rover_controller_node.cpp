@@ -70,7 +70,7 @@ private:
       rover_control_[0] = (-direction_angle * 180.0 / M_PI) * 0.4 + 180;
       rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120; // 120がスピード0, 出したいスピード + 120 = 送るデータ
       angle_can_id_ = opposite_degree_R_id_;
-    } else {　// /cmd_velから受け取った-1~1の範囲の角度の値が上にはまらない値なら左？へ下の式のスピードで曲がる
+    } else {  // /cmd_velから受け取った-1~1の範囲の角度の値が上にはまらない値なら左？へ下の式のスピードで曲がる
       rover_control_[0] = (-direction_angle * 180.0 / M_PI) * 0.4 + 180;
       rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120;
       angle_can_id_ = opposite_degree_L_id_;
