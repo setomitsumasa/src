@@ -17,13 +17,18 @@ def generate_launch_description():
     )
     goal_update_threshold_arg = DeclareLaunchArgument(
         "goal_update_threshold",
-        default_value="1.5",
+        default_value="1.0",
         description="TFがこの距離(m)以上動いたらゴール更新する",
     )
     max_tf_age_arg = DeclareLaunchArgument(
         "max_tf_age_sec",
         default_value="0.5",
         description="この秒数より古い TF は無視する",
+    )
+    goal_tolerance_arg = DeclareLaunchArgument(
+        "goal_tolerance",
+        default_value="1.5",
+        description="YOLO TF からこの距離(m)以内に入れば到達扱いにする",
     )
 
     yolo_tf_nav2_goal_node = Node(
@@ -37,6 +42,7 @@ def generate_launch_description():
                 "goal_send_interval_sec": LaunchConfiguration("goal_send_interval_sec"),
                 "goal_update_threshold": LaunchConfiguration("goal_update_threshold"),
                 "max_tf_age_sec": LaunchConfiguration("max_tf_age_sec"),
+                "goal_tolerance": LaunchConfiguration("goal_tolerance"),
             }
         ],
     )
@@ -46,5 +52,6 @@ def generate_launch_description():
     ld.add_action(goal_send_interval_arg)
     ld.add_action(goal_update_threshold_arg)
     ld.add_action(max_tf_age_arg)
+    ld.add_action(goal_tolerance_arg)
     ld.add_action(yolo_tf_nav2_goal_node)
     return ld

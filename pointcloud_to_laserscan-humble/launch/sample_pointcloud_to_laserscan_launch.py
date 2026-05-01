@@ -58,8 +58,8 @@ def generate_launch_description():
                 # pointcloud_to_laserscan と RViz 表示の補正をまとめて調整できる。
                 'target_frame': livox_mount_config['target_frame'],
                 'transform_tolerance': 0.01,
-                'min_height': 0.8,  # sim: 0.6, real: 0.2
-                'max_height': 1.6,  # sim: 1.6, real: 0.8
+                'min_height': 0.8,  # sim: 0.8, real: -0.3
+                'max_height': 1.6,  # sim: 1.6, real: 1.6
                 'angle_min': -1.57,
                 'angle_max': 1.57,
                 'angle_increment': 0.005,
@@ -84,8 +84,8 @@ def generate_launch_description():
             parameters=[{
                 'target_frame': livox_mount_config['target_frame'],
                 'transform_tolerance': 0.01,
-                'min_height': 0.8,  # sim: 0.6, real: 0.2
-                'max_height': 1.6,  # sim: 1.6, real: 0.8
+                'min_height': -0.3,  # sim: 0.8, real: -0.3
+                'max_height': 1.6,  # sim: 1.6, real: 1.6
                 'angle_min': -1.57,
                 'angle_max': 1.57,
                 'angle_increment': 0.005,

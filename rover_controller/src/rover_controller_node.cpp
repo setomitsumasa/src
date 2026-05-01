@@ -24,8 +24,8 @@ public:
       "/cmd_vel", 10, std::bind(&Commander::cmdVelCallback, this, std::placeholders::_1));
     pub_ = create_publisher<std_msgs::msg::Int16MultiArray>("uart_command", 10);
 
-    rover_control_[0] = 0.0;
-    rover_control_[1] = 0.0;
+    rover_control_[0] = 0.0; // Rover steering Angle
+    rover_control_[1] = 0.0; // Rover tire speed
 
     opposite_degree_R_id_ = 0x310;
     opposite_degree_L_id_ = 0x311;
@@ -63,14 +63,14 @@ private:
 
     std_msgs::msg::Int16MultiArray rover_cmd;
 
-    if (std::abs(direction_angle) < 0.3) {
-      rover_control_[0] = 180;
+    if (std::abs(direction_angle) < 0.3) {  // /cmd_velから受け取った-1~1の範囲の角度の値が -0.3 < 値 < 0.3なら
+      rover_control_[0] = 180; // 180が角度0, ステアの角度 + 180 = 送るデータ
       rover_control_[1] = velocity * 100 * 3.4 + 120;  // (-1 ~ 1) * 10 * 3 + 120
-    } else if (direction_angle >= 0.3) {
+    } else if (direction_angle >= 0.3) {  // /cmd_velから受け取った-1~1の範囲の角度の値が0.3より大きいなら右？へ下の式のスピードで曲がる
       rover_control_[0] = (-direction_angle * 180.0 / M_PI) * 0.4 + 180;
-      rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120;
+      rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120; // 120がスピード0, 出したいスピード + 120 = 送るデータ
       angle_can_id_ = opposite_degree_R_id_;
-    } else {
+    } else {　// /cmd_velから受け取った-1~1の範囲の角度の値が上にはまらない値なら左？へ下の式のスピードで曲がる
       rover_control_[0] = (-direction_angle * 180.0 / M_PI) * 0.4 + 180;
       rover_control_[1] = (velocity * 100 * 1.1 + std::abs(direction_angle) * 38) + 120;
       angle_can_id_ = opposite_degree_L_id_;
@@ -89,7 +89,7 @@ private:
       static_cast<int16_t>(rover_control_[1])
     };
 
-    pub_->publish(rover_cmd);
+    pub_->publish(rover_cmd); // -> uart_publisher -> TYPEC -> rover基板 -> CAN -> 各タイヤのマイコンで処理 -> ステアの角度とタイヤの速度に変換
 
     rover_control_[0] = 0;
     rover_control_[1] = 0;
