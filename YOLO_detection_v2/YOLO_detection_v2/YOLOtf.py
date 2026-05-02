@@ -305,10 +305,11 @@ class Make_YOLOtf(Node):
     # 物体を検出し、最も確信度の高い検出結果を返す
     def detection(self, bgr_data):
         # 推論
-        results = self.model(bgr_data, iou=0.6)
+        results = self.model(bgr_data, iou=0.6, conf=0.5)
         self.log_info_limited(
             'raw_detection',
-            f'cls={results[0].boxes.cls}, conf={results[0].boxes.conf}, box={results[0].boxes.xyxy}'
+            f'cls={results[0].boxes.cls}, conf={results[0].boxes.conf}, box={results[0].boxes.xyxy}',
+            f'speed:{results[0].speed}ms'
         )
 
         # 推論結果をリスト形式で構築
