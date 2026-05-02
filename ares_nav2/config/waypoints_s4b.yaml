@@ -1,4 +1,20 @@
 waypoints: # URC2025 GPS Waypoints Starts:38.41910142, -110.782723
+- latitude: 38.204735
+  longitude: 140.863011
+  yaw: 0.0
+  spiral_search: false
+  aruco: disable
+  marker_id: 1
+  yolo: disable
+  
+- latitude: 38.204473
+  longitude: 140.862896
+  yaw: 0.0
+  spiral_search: false
+  aruco: disable
+  marker_id: 1
+  yolo: disable
+ 
 - latitude: 38.204671
   longitude: 140.862633
   yaw: 0.0
