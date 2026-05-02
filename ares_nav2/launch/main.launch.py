@@ -2,7 +2,7 @@ import importlib.util
 import os
 
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 import launch
 import launch_ros.actions
 from launch_ros.parameter_descriptions import ParameterValue
@@ -44,7 +44,10 @@ def generate_launch_description():
     ld.add_action(
         DeclareLaunchArgument(
             'mission_log_directory',
-            default_value='mission_logs',
+            default_value=PathJoinSubstitution([
+                LaunchConfiguration('main_logger_session_dir'),
+                'mission_logs',
+            ]),
             description='gps_waypoint_follower mission log output directory',
         )
     )
@@ -88,7 +91,7 @@ def generate_launch_description():
             package='ares_nav2',
             executable='gps_waypoint_follower_node',
             name='gps_waypoint_follower',
-            output='screen',
+            output='both',
             parameters=[{
                 'mission_log_directory': LaunchConfiguration('mission_log_directory'),
                 'mission_log_to_file': True,
@@ -111,14 +114,14 @@ def generate_launch_description():
             package='ares_nav2',
             executable='aruco_nav2_goal_node',
             name='aruco_nav2_goal',
-            output='screen')
+            output='both')
     )
     ld.add_action(
         launch_ros.actions.Node(
             package='ares_nav2',
             executable='yolo_tf_nav2_goal_node',
             name='yolo_tf_nav2_goal',
-            output='screen',
+            output='both',
             parameters=[{
                 'goal_tolerance': 3.0,
             }])
