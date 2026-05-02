@@ -65,7 +65,7 @@ def generate_launch_description():
     ld.add_action(
         DeclareLaunchArgument(
             'spiral_spin_scan_angular_speed_rad_s',
-            default_value='0.7',
+            default_value='1.0',
             description='cmd_vel angular.z used during spiral spin scan',
         )
     )

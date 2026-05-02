@@ -1,0 +1,64 @@
+waypoints: # URC2025 GPS Waypoints Starts:38.41910142, -110.782723
+- latitude: 38.204747
+  longitude: 140.862865
+  yaw: 0.0
+  spiral_search: false  # true or false
+  aruco: disable # enable or disable
+  marker_id: 1
+  yolo: disable # bottle, mallet, hummer
+
+- latitude: 38.204683
+  longitude: 140.862660
+  yaw: 0.0
+  spiral_search: false
+  aruco: disable
+  marker_id: 2
+  yolo: disable # bottle, mallet, hummer
+
+- latitude: 38.204717 # AR 1
+  longitude: 140.862391
+  yaw: 0.0
+  spiral_search: true
+  aruco: enable
+  marker_id: 1
+  yolo: disable # bottle,mallet, hummer
+
+- latitude: 38.204305
+  longitude: 140.862159
+  yaw: 0.0
+  spiral_search: true
+  aruco: enable
+  marker_id: 2
+  yolo: disable
+
+- latitude: 38.204071
+  longitude: 140.861451
+  yaw: 0.0
+  spiral_search: true
+  aruco: enable
+  marker_id: 3
+  yolo: disable
+
+- latitude: 38.204033
+  longitude: 140.861186
+  yaw: 0.0
+  spiral_search: true
+  aruco: disable
+  marker_id: 1
+  yolo: mallet
+  
+- latitude: 38.204286
+  longitude: 140.86142
+  yaw: 0.0
+  spiral_search: true
+  aruco: disable
+  marker_id: 1
+  yolo: hammer
+
+- latitude: 38.204140
+  longitude: 140.862060
+  yaw: 0.0
+  spiral_search: true
+  aruco: disable
+  marker_id: 1
+  yolo: bottle
