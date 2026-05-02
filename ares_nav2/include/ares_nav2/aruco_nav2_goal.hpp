@@ -9,6 +9,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/float32.hpp>
@@ -40,6 +41,7 @@ private:
   void onDetectedMarkerId(const std_msgs::msg::Float32::SharedPtr msg);
   void resetTrackingState();
   void markGoalReached();
+  void publishZeroCmdVel();
   void publishGoalReached(bool reached);
   bool hasActiveGoal();
   bool isTargetActive() const;
@@ -51,9 +53,11 @@ private:
   rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr goal_hold_timer_;
+  rclcpp::TimerBase::SharedPtr stop_cmd_timer_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_marker_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr detected_marker_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
 
   void cancelCurrentGoal(bool suppress_cancel_result = true);
 
@@ -72,6 +76,7 @@ private:
   std::string target_marker_topic_;
   std::string detected_marker_topic_;
   std::string goal_reached_topic_;
+  std::string cmd_vel_topic_;
 
   // State
   std::mutex goal_mutex_;
