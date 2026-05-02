@@ -19,6 +19,7 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
   declare_parameter<std::string>("robot_base_frame", "base_link");
   declare_parameter<std::string>("target_frame_topic", "/yolo/target_frame");
   declare_parameter<std::string>("goal_reached_topic", "/yolo/goal_reached");
+  declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
   declare_parameter<std::string>("inactive_value", "disable");
   declare_parameter<std::string>("navigate_to_pose_action", "navigate_to_pose");
   declare_parameter<double>("goal_send_interval_sec", 1.0);
@@ -33,6 +34,7 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
   robot_base_frame_ = get_parameter("robot_base_frame").get_value<std::string>();
   target_frame_topic_ = get_parameter("target_frame_topic").get_value<std::string>();
   goal_reached_topic_ = get_parameter("goal_reached_topic").get_value<std::string>();
+  cmd_vel_topic_ = get_parameter("cmd_vel_topic").get_value<std::string>();
   inactive_value_ = get_parameter("inactive_value").get_value<std::string>();
   navigate_to_pose_action_ = get_parameter("navigate_to_pose_action").get_value<std::string>();
   goal_send_interval_sec_ = get_parameter("goal_send_interval_sec").get_value<double>();
@@ -54,6 +56,7 @@ YoloTfNav2Goal::YoloTfNav2Goal(const rclcpp::NodeOptions & options)
     target_frame_topic_, 10,
     std::bind(&YoloTfNav2Goal::onTargetFrame, this, std::placeholders::_1));
   goal_reached_pub_ = create_publisher<std_msgs::msg::Bool>(goal_reached_topic_, 10);
+  cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, 10);
 
   timer_ = create_wall_timer(
     std::chrono::duration<double>(timer_period),
@@ -72,6 +75,10 @@ void YoloTfNav2Goal::resetTrackingState()
   if (goal_hold_timer_) {
     goal_hold_timer_->cancel();
     goal_hold_timer_.reset();
+  }
+  if (stop_cmd_timer_) {
+    stop_cmd_timer_->cancel();
+    stop_cmd_timer_.reset();
   }
   waiting_after_goal_reached_ = false;
   goal_sent_once_ = false;
@@ -288,6 +295,15 @@ void YoloTfNav2Goal::onGoalResponse(GoalHandleNavigateToPose::SharedPtr handle)
 
 void YoloTfNav2Goal::markGoalReached()
 {
+  publishZeroCmdVel();
+  if (stop_cmd_timer_) {
+    stop_cmd_timer_->cancel();
+    stop_cmd_timer_.reset();
+  }
+  stop_cmd_timer_ = create_wall_timer(
+    std::chrono::milliseconds(100),
+    std::bind(&YoloTfNav2Goal::publishZeroCmdVel, this));
+
   if (goal_hold_time_sec_ > 0.0) {
     RCLCPP_INFO(get_logger(), "Holding position for %.1f seconds at YOLO goal", goal_hold_time_sec_);
   }
@@ -300,6 +316,11 @@ void YoloTfNav2Goal::markGoalReached()
         goal_hold_timer_->cancel();
         goal_hold_timer_.reset();
       }
+      publishZeroCmdVel();
+      if (stop_cmd_timer_) {
+        stop_cmd_timer_->cancel();
+        stop_cmd_timer_.reset();
+      }
 
       publishGoalReached(true);
 
@@ -307,6 +328,15 @@ void YoloTfNav2Goal::markGoalReached()
       tracked_frame_.clear();
       resetTrackingState();
     });
+}
+
+void YoloTfNav2Goal::publishZeroCmdVel()
+{
+  if (!cmd_vel_pub_) {
+    return;
+  }
+  geometry_msgs::msg::Twist stop_cmd;
+  cmd_vel_pub_->publish(stop_cmd);
 }
 
 void YoloTfNav2Goal::publishGoalReached(bool reached)

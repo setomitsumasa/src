@@ -28,6 +28,7 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
   declare_parameter<std::string>("target_marker_topic", "/aruco/target_marker_id");
   declare_parameter<std::string>("detected_marker_topic", "/aruco/id");
   declare_parameter<std::string>("goal_reached_topic", "/aruco/goal_reached");
+  declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
 
   target_frame_ = get_parameter("target_frame").get_value<std::string>();
   aruco_frame_ = get_parameter("aruco_frame").get_value<std::string>();
@@ -43,6 +44,7 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
   target_marker_topic_ = get_parameter("target_marker_topic").get_value<std::string>();
   detected_marker_topic_ = get_parameter("detected_marker_topic").get_value<std::string>();
   goal_reached_topic_ = get_parameter("goal_reached_topic").get_value<std::string>();
+  cmd_vel_topic_ = get_parameter("cmd_vel_topic").get_value<std::string>();
   const double timer_period = get_parameter("timer_period_sec").get_value<double>();
 
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
@@ -59,6 +61,7 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
     detected_marker_topic_, 10,
     std::bind(&ArucoNav2Goal::onDetectedMarkerId, this, std::placeholders::_1));
   goal_reached_pub_ = create_publisher<std_msgs::msg::Bool>(goal_reached_topic_, 10);
+  cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, 10);
 
   timer_ = create_wall_timer(
     std::chrono::duration<double>(timer_period),
@@ -74,6 +77,14 @@ ArucoNav2Goal::ArucoNav2Goal(const rclcpp::NodeOptions & options)
 void ArucoNav2Goal::resetTrackingState()
 {
   cancelCurrentGoal();
+  if (goal_hold_timer_) {
+    goal_hold_timer_->cancel();
+    goal_hold_timer_.reset();
+  }
+  if (stop_cmd_timer_) {
+    stop_cmd_timer_->cancel();
+    stop_cmd_timer_.reset();
+  }
   goal_sent_once_ = false;
   last_goal_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   last_goal_x_ = 0.0;
@@ -323,6 +334,15 @@ void ArucoNav2Goal::onGoalResponse(GoalHandleNavigateToPose::SharedPtr handle)
 
 void ArucoNav2Goal::markGoalReached()
 {
+  publishZeroCmdVel();
+  if (stop_cmd_timer_) {
+    stop_cmd_timer_->cancel();
+    stop_cmd_timer_.reset();
+  }
+  stop_cmd_timer_ = create_wall_timer(
+    std::chrono::milliseconds(100),
+    std::bind(&ArucoNav2Goal::publishZeroCmdVel, this));
+
   if (goal_hold_time_sec_ > 0.0) {
     RCLCPP_INFO(get_logger(), "Holding position for %.1f seconds at ArUco goal", goal_hold_time_sec_);
   }
@@ -335,6 +355,11 @@ void ArucoNav2Goal::markGoalReached()
         goal_hold_timer_->cancel();
         goal_hold_timer_.reset();
       }
+      publishZeroCmdVel();
+      if (stop_cmd_timer_) {
+        stop_cmd_timer_->cancel();
+        stop_cmd_timer_.reset();
+      }
 
       publishGoalReached(true);
 
@@ -346,6 +371,15 @@ void ArucoNav2Goal::markGoalReached()
         resetTrackingState();
       }
     });
+}
+
+void ArucoNav2Goal::publishZeroCmdVel()
+{
+  if (!cmd_vel_pub_) {
+    return;
+  }
+  geometry_msgs::msg::Twist stop_cmd;
+  cmd_vel_pub_->publish(stop_cmd);
 }
 
 void ArucoNav2Goal::publishGoalReached(bool reached)
