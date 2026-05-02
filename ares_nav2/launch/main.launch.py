@@ -58,7 +58,7 @@ def generate_launch_description():
     ld.add_action(
         DeclareLaunchArgument(
             'spiral_spin_scan_total_angle_rad',
-            default_value='6.283185307179586',
+            default_value='12.5663706144',  # 4 full rotations
             description='Total spin angle at each spiral search point',
         )
     )
@@ -67,6 +67,13 @@ def generate_launch_description():
             'spiral_spin_scan_angular_speed_rad_s',
             default_value='1.0',
             description='cmd_vel angular.z used during spiral spin scan',
+        )
+    )
+    ld.add_action(
+        DeclareLaunchArgument(
+            'spiral_spin_scan_linear_speed_m_s',
+            default_value='0.3',
+            description='cmd_vel linear.x used during spiral spin scan',
         )
     )
     ld.add_action(
@@ -93,6 +100,8 @@ def generate_launch_description():
                     LaunchConfiguration('spiral_spin_scan_total_angle_rad'), value_type=float),
                 'spiral_spin_scan_angular_speed_rad_s': ParameterValue(
                     LaunchConfiguration('spiral_spin_scan_angular_speed_rad_s'), value_type=float),
+                'spiral_spin_scan_linear_speed_m_s': ParameterValue(
+                    LaunchConfiguration('spiral_spin_scan_linear_speed_m_s'), value_type=float),
                 'spiral_spin_scan_direction': ParameterValue(
                     LaunchConfiguration('spiral_spin_scan_direction'), value_type=int),
             }])
@@ -111,7 +120,7 @@ def generate_launch_description():
             name='yolo_tf_nav2_goal',
             output='screen',
             parameters=[{
-                'goal_tolerance': 1.5,
+                'goal_tolerance': 3.0,
             }])
     )
 
