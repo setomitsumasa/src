@@ -47,6 +47,7 @@ Nav2 の起動そのものに加えて、「GPS waypoint に向かう」「到�
 - `spiral_spin_scan_enabled`: spiral 探索点でのその場回転を有効化
 - `spiral_spin_scan_total_angle_rad`: 1地点で回す合計角度。既定値は `2π`
 - `spiral_spin_scan_angular_speed_rad_s`: 回転中に `/cmd_vel.angular.z` へ出す角速度
+- `spiral_spin_scan_linear_speed_m_s`: 回転中に `/cmd_vel.linear.x` へ出す直進速度
 - `spiral_spin_scan_direction`: `1` で左回り、`-1` で右回り
 
 `main.launch.py` では同名の launch argument で上書きできます。

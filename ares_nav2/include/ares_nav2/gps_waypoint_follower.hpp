@@ -136,6 +136,7 @@ private:
     bool spiral_spin_scan_enabled_{true};
     double spiral_spin_scan_total_angle_rad_{2.0 * M_PI};
     double spiral_spin_scan_angular_speed_rad_s_{0.5};
+    double spiral_spin_scan_linear_speed_m_s_{0.0};
     int spiral_spin_scan_direction_{1};
     rclcpp::Time spiral_spin_scan_start_time_{0, 0, RCL_ROS_TIME};
 

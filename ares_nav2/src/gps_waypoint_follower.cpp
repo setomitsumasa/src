@@ -48,6 +48,8 @@ namespace ares_nav2 {
 	            "spiral_spin_scan_total_angle_rad", 2.0 * M_PI);
 	        spiral_spin_scan_angular_speed_rad_s_ = this->declare_parameter<double>(
 	            "spiral_spin_scan_angular_speed_rad_s", 0.5);
+	        spiral_spin_scan_linear_speed_m_s_ = this->declare_parameter<double>(
+	            "spiral_spin_scan_linear_speed_m_s", 0.0);
 	        spiral_spin_scan_direction_ = this->declare_parameter<int>(
 	            "spiral_spin_scan_direction", 1);
 	        openMissionLogFile();
@@ -866,7 +868,9 @@ namespace ares_nav2 {
                 << " for " << duration_sec
                 << " sec, angular_speed="
                 << spiral_spin_scan_angular_speed_rad_s_
-                << " rad/s.";
+                << " rad/s, linear_speed="
+                << spiral_spin_scan_linear_speed_m_s_
+                << " m/s.";
             missionLog(MissionLogLevel::Info, "SPIRAL_SPIN_SCAN_START", oss.str());
         }
         setActiveGoalDescription("spiral spin scan");
@@ -907,6 +911,7 @@ namespace ares_nav2 {
         }
         geometry_msgs::msg::Twist cmd;
         const double direction = spiral_spin_scan_direction_ >= 0 ? 1.0 : -1.0;
+        cmd.linear.x = spiral_spin_scan_linear_speed_m_s_;
         cmd.angular.z = direction * spiral_spin_scan_angular_speed_rad_s_;
         cmd_vel_pub_->publish(cmd);
     }
