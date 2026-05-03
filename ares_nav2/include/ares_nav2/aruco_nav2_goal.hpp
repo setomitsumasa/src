@@ -47,6 +47,7 @@ private:
   bool hasActiveGoal();
   bool isTargetActive() const;
   bool isRobotWithinGoalTolerance(const geometry_msgs::msg::PoseStamped & pose) const;
+  bool tryUpdateCachedTargetPose(geometry_msgs::msg::PoseStamped & target_pose);
 
   // ROS
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -97,6 +98,7 @@ private:
   geometry_msgs::msg::PoseStamped cached_target_pose_;
   bool has_cached_target_pose_{false};
   rclcpp::Time cached_target_pose_time_{0, 0, RCL_ROS_TIME};
+  int cached_target_marker_id_{-1};
 };
 
 }  // namespace ares_nav2
