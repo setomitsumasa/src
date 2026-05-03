@@ -42,6 +42,7 @@ private:
   void resetTrackingState();
   void markGoalReached();
   void publishZeroCmdVel();
+  void publishForceStop(bool enabled);
   void publishGoalReached(bool reached);
   bool hasActiveGoal();
   bool isTargetActive() const;
@@ -57,6 +58,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr target_marker_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr detected_marker_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr force_stop_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
 
   void cancelCurrentGoal(bool suppress_cancel_result = true);
@@ -77,6 +79,7 @@ private:
   std::string detected_marker_topic_;
   std::string goal_reached_topic_;
   std::string cmd_vel_topic_;
+  std::string force_stop_topic_;
 
   // State
   std::mutex goal_mutex_;

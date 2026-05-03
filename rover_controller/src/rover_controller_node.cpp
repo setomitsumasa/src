@@ -7,6 +7,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
 
 namespace rover_controller
@@ -22,6 +23,9 @@ public:
 
     sub_ = create_subscription<geometry_msgs::msg::Twist>(
       "/cmd_vel", 10, std::bind(&Commander::cmdVelCallback, this, std::placeholders::_1));
+    force_stop_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/cmd_vel_force_stop", 10,
+      std::bind(&Commander::forceStopCallback, this, std::placeholders::_1));
     pub_ = create_publisher<std_msgs::msg::Int16MultiArray>("uart_command", 10);
 
     rover_control_[0] = 0.0; // Rover steering Angle
@@ -45,6 +49,14 @@ private:
     latest_twist_ = *msg;
   }
 
+  void forceStopCallback(const std_msgs::msg::Bool::SharedPtr msg)
+  {
+    force_stop_ = msg->data;
+    if (force_stop_) {
+      latest_twist_ = geometry_msgs::msg::Twist();
+    }
+  }
+
   void calculateAngleAndVelocity(
     const geometry_msgs::msg::Twist & twist,
     double & direction_angle, double & velocity)
@@ -58,8 +70,9 @@ private:
 
   void timerCallback()
   {
+    const auto twist = force_stop_ ? geometry_msgs::msg::Twist() : latest_twist_;
     double direction_angle, velocity;
-    calculateAngleAndVelocity(latest_twist_, direction_angle, velocity);
+    calculateAngleAndVelocity(twist, direction_angle, velocity);
 
     std_msgs::msg::Int16MultiArray rover_cmd;
 
@@ -97,6 +110,7 @@ private:
 
   double timer_period_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr force_stop_sub_;
   rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr pub_;
   double rover_control_[2];
   int opposite_degree_R_id_;
@@ -105,6 +119,7 @@ private:
   int angle_can_id_;
   int speed_can_id_;
   geometry_msgs::msg::Twist latest_twist_;
+  bool force_stop_{false};
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
