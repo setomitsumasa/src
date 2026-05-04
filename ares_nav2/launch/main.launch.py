@@ -2,10 +2,11 @@ import importlib.util
 import os
 
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 import launch
 import launch_ros.actions
 from launch_ros.parameter_descriptions import ParameterValue
+from ament_index_python.packages import get_package_share_directory
 
 
 _logger_utils_path = os.path.join(os.path.dirname(__file__), 'logger_utils.py')
@@ -19,6 +20,18 @@ make_logger_actions = _logger_utils.make_logger_actions
 
 def generate_launch_description():
     ld = launch.LaunchDescription()
+    pkg_share = get_package_share_directory('ares_nav2')
+    real_waypoints_file = os.path.join(pkg_share, 'config', 'waypoints.yaml')
+    sim_waypoints_file = os.path.join(pkg_share, 'config', 'waypoints_sim.yaml')
+    waypoint_file = PythonExpression([
+        "'",
+        LaunchConfiguration('sim'),
+        "'.lower() in ['true', '1', 'yes'] and '",
+        sim_waypoints_file,
+        "' or '",
+        real_waypoints_file,
+        "'",
+    ])
 
     for action in make_logger_actions(
         'main',
@@ -42,6 +55,13 @@ def generate_launch_description():
     ):
         ld.add_action(action)
 
+    ld.add_action(
+        DeclareLaunchArgument(
+            'sim',
+            default_value='false',
+            description='Use simulation waypoint file when true',
+        )
+    )
     ld.add_action(
         DeclareLaunchArgument(
             'mission_log_directory',
@@ -93,6 +113,7 @@ def generate_launch_description():
             executable='gps_waypoint_follower_node',
             name='gps_waypoint_follower',
             output='both',
+            arguments=['--waypoints-file', waypoint_file],
             parameters=[{
                 'mission_log_directory': LaunchConfiguration('mission_log_directory'),
                 'mission_log_to_file': True,
