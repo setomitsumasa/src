@@ -32,7 +32,7 @@ class RealSensePublisherNode(Node):
         self.declare_parameter("color_height", 480)
         self.declare_parameter("depth_width", 640)
         self.declare_parameter("depth_height", 480)
-        self.declare_parameter("fps", 30)
+        self.declare_parameter("fps", 15)
         self.declare_parameter("color_topic", "camera/color/image_raw")
         self.declare_parameter("depth_topic", "camera/depth/image_raw")
         self.declare_parameter("camera_info_topic", "camera/color/camera_info")

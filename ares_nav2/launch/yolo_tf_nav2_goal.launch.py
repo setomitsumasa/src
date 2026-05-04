@@ -27,7 +27,7 @@ def generate_launch_description():
     )
     goal_tolerance_arg = DeclareLaunchArgument(
         "goal_tolerance",
-        default_value="1.5",
+        default_value="3.0",
         description="YOLO TF からこの距離(m)以内に入れば到達扱いにする",
     )
 

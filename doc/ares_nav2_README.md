@@ -25,6 +25,7 @@ Nav2 の起動そのものに加えて、「GPS waypoint に向かう」「到�
 
 - waypoint ごとに `yaw` を設定可能
 - `spiral_search: true` のときは、到着後にらせん状の探索 waypoint を追加送信
+- spiral 探索点に到着したら、その場で `/cmd_vel` 回転スキャンを行い、対象が見えたら接近フェーズへ移行
 - `aruco` と `marker_id` が設定されていれば、ArUco 接近フェーズへ移行
 - `yolo` が設定されていれば、YOLO 物体接近フェーズへ移行
 - waypoint 到達時に `uart_command` へ停止コマンドを送る
@@ -38,7 +39,18 @@ Nav2 の起動そのものに加えて、「GPS waypoint に向かう」「到�
 - Publish: `/aruco/enabled`
 - Publish: `/aruco/target_marker_id`
 - Publish: `/yolo/target_frame`
+- Publish: `/cmd_vel`
 - Publish: `uart_command`
+
+回転スキャンの主なパラメータ:
+
+- `spiral_spin_scan_enabled`: spiral 探索点でのその場回転を有効化
+- `spiral_spin_scan_total_angle_rad`: 1地点で回す合計角度。既定値は `2π`
+- `spiral_spin_scan_angular_speed_rad_s`: 回転中に `/cmd_vel.angular.z` へ出す角速度
+- `spiral_spin_scan_linear_speed_m_s`: 回転中に `/cmd_vel.linear.x` へ出す直進速度
+- `spiral_spin_scan_direction`: `1` で左回り、`-1` で右回り
+
+`main.launch.py` では同名の launch argument で上書きできます。
 
 ### `aruco_nav2_goal_node`
 

@@ -109,6 +109,7 @@ def generate_launch_description():
             '/imu/data',
             '/imu/yaw',
             '/cmd_vel',
+            '/cmd_vel_force_stop',
             '/livox/lidar',
             '/converted_pointcloud2',
             '/scan',

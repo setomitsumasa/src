@@ -139,6 +139,7 @@ def generate_launch_description():
             '/odometry/global',
             '/scan',
             '/cmd_vel',
+            '/cmd_vel_force_stop',
             '/aruco/id',
             '/tf',
             '/tf_static',

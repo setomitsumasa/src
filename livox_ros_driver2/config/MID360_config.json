@@ -30,11 +30,12 @@
       "pattern_mode" : 0,
       "extrinsic_parameter" : {
         "roll": 0.0,
-        "pitch": 210.0,
+        "pitch": 180.0,
         "yaw": 180.0,
         "x": 0,
         "y": 0,
-        "z": 300
+        "z": 1300 
+
 
 
 

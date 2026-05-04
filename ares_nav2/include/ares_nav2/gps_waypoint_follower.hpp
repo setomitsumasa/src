@@ -9,6 +9,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -18,10 +19,15 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <fstream>
+#include <cmath>
 #include <vector>
 #include <string>
 #include <optional>
 #include <mutex>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 
 namespace ares_nav2
@@ -82,6 +88,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr yolo_enabled_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr yolo_target_frame_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mission_status_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     rclcpp::TimerBase::SharedPtr spiral_monitor_timer_;
     rclcpp::TimerBase::SharedPtr mission_status_timer_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -125,6 +132,13 @@ private:
     size_t spiral_index_{0};
     size_t spiral_count_waypoint_index_{static_cast<size_t>(-1)};
     int spiral_attempt_count_{0};
+    bool spiral_spin_scan_active_{false};
+    bool spiral_spin_scan_enabled_{true};
+    double spiral_spin_scan_total_angle_rad_{2.0 * M_PI};
+    double spiral_spin_scan_angular_speed_rad_s_{0.5};
+    double spiral_spin_scan_linear_speed_m_s_{0.0};
+    int spiral_spin_scan_direction_{1};
+    rclcpp::Time spiral_spin_scan_start_time_{0, 0, RCL_ROS_TIME};
 
     // Goal handle management
     std::mutex goal_handle_mutex_;
@@ -152,6 +166,13 @@ private:
     bool currentWaypointHasYoloTarget() const;
     void monitorSpiralTargets();
     bool isCurrentYoloTargetVisible() const;
+    bool shouldSpinScanAtSpiralPoint() const;
+    double spiralSpinScanDurationSec() const;
+    void startSpiralSpinScan();
+    void updateSpiralSpinScan();
+    void stopSpiralSpinScan();
+    void publishZeroCmdVel();
+    void publishGoalReachedUartCommand(const std::string& goal_type);
 
     // Utility functions
     void onGoalResponse(std::shared_future<GoalHandleNavigateToPose::SharedPtr> future);

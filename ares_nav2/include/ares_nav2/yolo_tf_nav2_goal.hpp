@@ -10,6 +10,7 @@
 #include <string>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -38,6 +39,8 @@ private:
   void cancelCurrentGoal(bool suppress_cancel_result = true);
   void resetTrackingState();
   void markGoalReached();
+  void publishZeroCmdVel();
+  void publishForceStop(bool enabled);
   void publishGoalReached(bool reached);
   bool hasActiveGoal();
   bool isTargetActive() const;
@@ -48,8 +51,11 @@ private:
   rclcpp_action::Client<NavigateToPose>::SharedPtr action_client_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr goal_hold_timer_;
+  rclcpp::TimerBase::SharedPtr stop_cmd_timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr target_frame_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr goal_reached_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr force_stop_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
 
   std::string target_frame_;
   std::string robot_base_frame_;
@@ -57,6 +63,8 @@ private:
   std::string inactive_value_;
   std::string target_frame_topic_;
   std::string goal_reached_topic_;
+  std::string force_stop_topic_;
+  std::string cmd_vel_topic_;
   std::string navigate_to_pose_action_;
   double goal_send_interval_sec_;
   double goal_update_threshold_;

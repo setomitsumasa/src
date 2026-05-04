@@ -155,7 +155,13 @@ ros2 launch ares_nav2 main.launch.py
 ```text
 logger/<launch名>/<YYYYmmdd_HHMMSS>/terminal.log
 logger/<launch名>/<YYYYmmdd_HHMMSS>/ros_launch_raw/
+logger/main/<YYYYmmdd_HHMMSS>/mission_logs/
 ```
+
+`terminal.log` には launch 本体の `launch.log` だけでなく、各 node の stdout/stderr
+ログもまとめて保存します。元の ROS launch ログ一式は `ros_launch_raw/` に残ります。
+`main.launch.py` の `gps_waypoint_follower` が出す mission log も、デフォルトでは同じ
+logger セッション内の `mission_logs/` に保存します。
 
 topic もデフォルトで rosbag2 に保存されます。
 
