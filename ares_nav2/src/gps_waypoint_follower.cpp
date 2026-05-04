@@ -566,10 +566,11 @@ namespace ares_nav2 {
 	                       "ArUco goal reached. Proceeding to next waypoint.");
 	        }
 
-        waiting_for_aruco_goal_ = false;
-        deactivateArucoTarget();
-        goal_index_++;
-        sendNextGoal();
+        publishGoalReachedUartCommand("ArUco");
+	        waiting_for_aruco_goal_ = false;
+	        deactivateArucoTarget();
+	        goal_index_++;
+	        sendNextGoal();
     }
 
     void GPSWaypointFollower::onYoloGoalReached(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -601,10 +602,11 @@ namespace ares_nav2 {
 	                       "YOLO goal reached. Proceeding to next waypoint.");
 	        }
 
-        waiting_for_yolo_goal_ = false;
-        deactivateYoloTarget();
-        goal_index_++;
-        sendNextGoal();
+        publishGoalReachedUartCommand("YOLO");
+	        waiting_for_yolo_goal_ = false;
+	        deactivateYoloTarget();
+	        goal_index_++;
+	        sendNextGoal();
     }
 
     void GPSWaypointFollower::cancelCurrentGoal() {
@@ -852,6 +854,28 @@ namespace ares_nav2 {
         cmd_vel_pub_->publish(cmd);
     }
 
+    void GPSWaypointFollower::publishGoalReachedUartCommand(const std::string& goal_type) {
+        if (!uart_command_pub_) {
+            return;
+        }
+
+        std_msgs::msg::Int16MultiArray uart_msg;
+        uart_msg.data = {
+            static_cast<int16_t>(0x481), 0,
+            static_cast<int16_t>(0x481), 0,
+        };
+
+        for (int i = 0; i < 3; ++i) {
+            uart_command_pub_->publish(uart_msg);
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Published goal reached UART command for %s goal: id=0x481, data=0, repeats=3",
+            goal_type.c_str());
+    }
+
     void GPSWaypointFollower::startSpiralSpinScan() {
         if (!shouldSpinScanAtSpiralPoint()) {
             return;
@@ -1000,15 +1024,14 @@ namespace ares_nav2 {
 	            if (!last_sent_goal_log_.empty()) {
 	                missionLog(MissionLogLevel::Info, "NAV2_REACHED",
 	                           "Reached published goal: " + last_sent_goal_log_);
-	            } else {
-	                missionLog(MissionLogLevel::Info, "NAV2_REACHED", "Reached goal.");
-	            }
-            // uart_command に 0x441 を3回送信（serial_publiasher が UART で MCU に送る）
-            std_msgs::msg::Int16MultiArray uart_msg;
-            uart_msg.data = {static_cast<int16_t>(0x441), 0, static_cast<int16_t>(0x441), 0};
-            for (int i = 0; i < 3; ++i) {
-                uart_command_pub_->publish(uart_msg);
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		            } else {
+		                missionLog(MissionLogLevel::Info, "NAV2_REACHED", "Reached goal.");
+		            }
+            const bool target_approach_required =
+                goal_index_ < waypoints_.size() &&
+                (currentWaypointHasArucoTarget() || currentWaypointHasYoloTarget());
+            if (!spiral_search_active_ && !target_approach_required) {
+                publishGoalReachedUartCommand("GPS");
             }
             std::this_thread::sleep_for(std::chrono::duration<double>(hold_time_sec_));
         }
