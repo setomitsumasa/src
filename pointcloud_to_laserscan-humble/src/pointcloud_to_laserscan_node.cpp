@@ -49,7 +49,6 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include <vector>
 
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/features/normal_3d.h>
@@ -84,37 +83,7 @@ PointCloudToLaserScanNode::PointCloudToLaserScanNode(const rclcpp::NodeOptions &
   inf_epsilon_ = this->declare_parameter("inf_epsilon", 1.0);
   use_inf_ = this->declare_parameter("use_inf", true);
   apply_slope_filter_ = this->declare_parameter("apply_slope_filter", true);
-  max_slope_angle_ = this->declare_parameter("max_slope_angle", 30.0) * M_PI / 180.0;
-  exclude_height_band_ = this->declare_parameter("exclude_height_band", false);
-  exclude_height_min_ = this->declare_parameter("exclude_height_min", 0.2);
-  exclude_height_max_ = this->declare_parameter("exclude_height_max", 0.6);
-  if (exclude_height_min_ > exclude_height_max_) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "exclude_height_min is greater than exclude_height_max. Swapping the values.");
-    std::swap(exclude_height_min_, exclude_height_max_);
-  }
-  detect_negative_obstacles_ = this->declare_parameter("detect_negative_obstacles", false);
-  negative_obstacle_ground_min_height_ = this->declare_parameter(
-    "negative_obstacle_ground_min_height", min_height_);
-  negative_obstacle_ground_max_height_ = this->declare_parameter(
-    "negative_obstacle_ground_max_height", max_height_);
-  if (negative_obstacle_ground_min_height_ > negative_obstacle_ground_max_height_) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "negative_obstacle_ground_min_height is greater than "
-      "negative_obstacle_ground_max_height. Swapping the values.");
-    std::swap(negative_obstacle_ground_min_height_, negative_obstacle_ground_max_height_);
-  }
-  negative_obstacle_drop_height_ = this->declare_parameter("negative_obstacle_drop_height", 0.2);
-  negative_obstacle_slope_angle_ =
-    this->declare_parameter("negative_obstacle_slope_angle", 30.0) * M_PI / 180.0;
-  negative_obstacle_comparison_distance_ =
-    this->declare_parameter("negative_obstacle_comparison_distance", 0.3);
-  negative_obstacle_range_bin_size_ =
-    this->declare_parameter("negative_obstacle_range_bin_size", 0.1);
-  negative_obstacle_angle_bin_size_ =
-    this->declare_parameter("negative_obstacle_angle_bin_size", angle_increment_);
+  max_slope_angle_ = this->declare_parameter("max_slope_angle", 15.0) * M_PI / 180.0;
   normal_k_search_ = this->declare_parameter("normal_k_search", 20);
   voxel_leaf_size_ = this->declare_parameter("voxel_leaf_size", 0.11);
   //search_radius_ = this->declare_parameter("search_radius", 0.15); //ksearchの代わり
@@ -261,54 +230,6 @@ void PointCloudToLaserScanNode::cloudCallback(
     ne.setKSearch(normal_k_search_);
     ne.compute(normals);
 
-    struct GroundCell
-    {
-      bool has_point{false};
-      pcl::PointXYZ point;
-    };
-
-    std::vector<GroundCell> ground_cells;
-    int negative_angle_bins = 0;
-    int negative_range_bins = 0;
-    int comparison_bins = 0;
-    bool use_negative_obstacle_detection =
-      detect_negative_obstacles_ &&
-      negative_obstacle_drop_height_ > 0.0 &&
-      negative_obstacle_comparison_distance_ > 0.0 &&
-      negative_obstacle_range_bin_size_ > 0.0 &&
-      negative_obstacle_angle_bin_size_ > 0.0 &&
-      std::isfinite(range_max_) &&
-      range_max_ > range_min_;
-
-    if (use_negative_obstacle_detection) {
-      negative_angle_bins = static_cast<int>(
-        std::ceil((angle_max_ - angle_min_) / negative_obstacle_angle_bin_size_));
-      negative_range_bins = static_cast<int>(
-        std::ceil((range_max_ - range_min_) / negative_obstacle_range_bin_size_));
-      comparison_bins = std::max(
-        1,
-        static_cast<int>(
-          std::round(negative_obstacle_comparison_distance_ /
-          negative_obstacle_range_bin_size_)));
-
-      const auto cell_count =
-        static_cast<size_t>(std::max(0, negative_angle_bins)) *
-        static_cast<size_t>(std::max(0, negative_range_bins));
-      if (
-        negative_angle_bins <= 0 ||
-        negative_range_bins <= comparison_bins ||
-        cell_count > 1000000)
-      {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 5000,
-          "Skipping negative obstacle detection because the generated grid is invalid "
-          "or too large.");
-        use_negative_obstacle_detection = false;
-      } else {
-        ground_cells.resize(cell_count);
-      }
-    }
-
     filtered_pcl.header = downsampled_cloud.header;
     for (size_t i = 0; i < downsampled_cloud.points.size() && i < normals.points.size(); ++i) {
       const auto & pt = downsampled_cloud.points[i];
@@ -317,88 +238,17 @@ void PointCloudToLaserScanNode::cloudCallback(
         continue;
       }
 
-      double nz = normal.normal_z;
-      double slope_angle = std::acos(std::clamp(std::fabs(nz), 0.0, 1.0));
-
-      if (
-        use_negative_obstacle_detection &&
-        pt.z >= negative_obstacle_ground_min_height_ &&
-        pt.z <= negative_obstacle_ground_max_height_ &&
-        slope_angle <= max_slope_angle_)
-      {
-        const double range = hypot(pt.x, pt.y);
-        const double angle = atan2(pt.y, pt.x);
-        if (
-          range >= range_min_ && range <= range_max_ &&
-          angle >= angle_min_ && angle <= angle_max_)
-        {
-          const int angle_index = static_cast<int>(
-            (angle - angle_min_) / negative_obstacle_angle_bin_size_);
-          const int range_index = static_cast<int>(
-            (range - range_min_) / negative_obstacle_range_bin_size_);
-          if (
-            angle_index >= 0 && angle_index < negative_angle_bins &&
-            range_index >= 0 && range_index < negative_range_bins)
-          {
-            auto & cell = ground_cells[
-              static_cast<size_t>(angle_index) * static_cast<size_t>(negative_range_bins) +
-              static_cast<size_t>(range_index)];
-            if (!cell.has_point || pt.z < cell.point.z) {
-              cell.has_point = true;
-              cell.point = pt;
-            }
-          }
-        }
-      }
-
       if (pt.z > max_height_ || pt.z < min_height_) {
         continue;
       }
 
-      if (exclude_height_band_ && pt.z >= exclude_height_min_ && pt.z <= exclude_height_max_) {
-        continue;
-      }
-
+      double nz = normal.normal_z;
+      double slope_angle = std::acos(std::clamp(std::fabs(nz), 0.0, 1.0));
       if (slope_angle <= max_slope_angle_) {
         continue;
       }
 
       filtered_pcl.points.push_back(pt);
-    }
-
-    if (use_negative_obstacle_detection) {
-      for (int angle_index = 0; angle_index < negative_angle_bins; ++angle_index) {
-        const auto angle_offset =
-          static_cast<size_t>(angle_index) * static_cast<size_t>(negative_range_bins);
-        for (int near_index = 0; near_index + comparison_bins < negative_range_bins; ++near_index) {
-          const auto & near_cell = ground_cells[angle_offset + static_cast<size_t>(near_index)];
-          const auto & far_cell = ground_cells[
-            angle_offset + static_cast<size_t>(near_index + comparison_bins)];
-          if (!near_cell.has_point || !far_cell.has_point) {
-            continue;
-          }
-
-          const double dz = near_cell.point.z - far_cell.point.z;
-          if (dz < negative_obstacle_drop_height_) {
-            continue;
-          }
-
-          const double dxy = hypot(
-            far_cell.point.x - near_cell.point.x,
-            far_cell.point.y - near_cell.point.y);
-          if (dxy <= std::numeric_limits<double>::epsilon()) {
-            continue;
-          }
-
-          const double drop_slope_angle = std::atan2(dz, dxy);
-          if (drop_slope_angle < negative_obstacle_slope_angle_) {
-            continue;
-          }
-
-          filtered_pcl.points.push_back(near_cell.point);
-          break;
-        }
-      }
     }
   } else {
     filtered_pcl = pcl_cloud;
