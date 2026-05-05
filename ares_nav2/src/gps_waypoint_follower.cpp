@@ -865,7 +865,7 @@ namespace ares_nav2 {
             static_cast<int16_t>(0x481), 0,
         };
 
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < 5; ++i) {
             uart_command_pub_->publish(uart_msg);
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
