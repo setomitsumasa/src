@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
     }
 
     ares_nav2::SpiralParams sp;
-    sp.r0 = 1.0; sp.dr = 1.0; sp.dtheta_rad = M_PI / 2.0; sp.n_spiral = 10;
+    sp.r0 = 1.0; sp.dr = 1.0; sp.dtheta_rad = M_PI / 2.0; sp.n_spiral = 13;
 
     auto node = std::make_shared<ares_nav2::GPSWaypointFollower>(yaml, sp);
     rclcpp::spin(node);
