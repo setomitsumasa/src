@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'TRC_log_maker = log_maker.TRC_log_maker:main',
+            'URC26_status_publisher = log_maker.URC26_logmaker:main',
         ],
     },
 )
