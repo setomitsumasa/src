@@ -102,7 +102,7 @@ private:
       static_cast<int16_t>(rover_control_[1])
     };
 
-    //pub_->publish(rover_cmd); // -> uart_publisher -> TYPEC -> rover基板 -> CAN -> 各タイヤのマイコンで処理 -> ステアの角度とタイヤの速度に変換
+    pub_->publish(rover_cmd); // -> uart_publisher -> TYPEC -> rover基板 -> CAN -> 各タイヤのマイコンで処理 -> ステアの角度とタイヤの速度に変換
 
     rover_control_[0] = 0;
     rover_control_[1] = 0;
