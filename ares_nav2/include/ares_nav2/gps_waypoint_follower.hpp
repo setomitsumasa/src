@@ -172,7 +172,6 @@ private:
     void updateSpiralSpinScan();
     void stopSpiralSpinScan();
     void publishZeroCmdVel();
-    void publishGoalReachedUartCommand(const std::string& goal_type);
 
     // Utility functions
     void onGoalResponse(std::shared_future<GoalHandleNavigateToPose::SharedPtr> future);
