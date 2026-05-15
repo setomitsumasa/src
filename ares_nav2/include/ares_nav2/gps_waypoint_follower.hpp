@@ -110,7 +110,7 @@ private:
     int latest_detected_marker_id_{-1};
     bool has_recent_aruco_detection_{false};
     rclcpp::Time last_aruco_detection_time_{0, 0, RCL_ROS_TIME};
-    bool mission_log_to_file_{true};
+    bool mission_log_to_file_{false};
     std::string mission_log_directory_{"mission_logs"};
     std::string mission_status_topic_{"/mission/status"};
     double mission_status_period_sec_{1.0};

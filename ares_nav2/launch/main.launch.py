@@ -2,7 +2,7 @@ import importlib.util
 import os
 
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression
 import launch
 import launch_ros.actions
 from launch_ros.parameter_descriptions import ParameterValue
@@ -33,26 +33,7 @@ def generate_launch_description():
         "'",
     ])
 
-    for action in make_logger_actions(
-        'main',
-        [
-            '/gps/fix',
-            '/imu/data',
-            '/imu/yaw',
-            '/cmd_vel',
-            '/cmd_vel_force_stop',
-            '/uart_command',
-            '/aruco/id',
-            '/aruco/enabled',
-            '/aruco/target_marker_id',
-            '/aruco/goal_reached',
-            '/yolo/target_frame',
-            '/yolo/goal_reached',
-            '/mission/status',
-            '/tf',
-            '/tf_static',
-        ],
-    ):
+    for action in make_logger_actions('main'):
         ld.add_action(action)
 
     ld.add_action(
@@ -60,16 +41,6 @@ def generate_launch_description():
             'sim',
             default_value='false',
             description='Use simulation waypoint file when true',
-        )
-    )
-    ld.add_action(
-        DeclareLaunchArgument(
-            'mission_log_directory',
-            default_value=PathJoinSubstitution([
-                LaunchConfiguration('main_logger_session_dir'),
-                'mission_logs',
-            ]),
-            description='gps_waypoint_follower mission log output directory',
         )
     )
     ld.add_action(
@@ -115,8 +86,7 @@ def generate_launch_description():
             output='both',
             arguments=['--waypoints-file', waypoint_file],
             parameters=[{
-                'mission_log_directory': LaunchConfiguration('mission_log_directory'),
-                'mission_log_to_file': True,
+                'mission_log_to_file': False,
                 'mission_status_topic': '/mission/status',
                 'mission_status_period_sec': 1.0,
                 'spiral_spin_scan_enabled': ParameterValue(
@@ -146,6 +116,16 @@ def generate_launch_description():
             output='both',
             parameters=[{
                 'goal_tolerance': 3.0,
+            }])
+    )
+    ld.add_action(
+        launch_ros.actions.Node(
+            package='log_maker',
+            executable='URC26_status_publisher',
+            name='urc26_status_publisher',
+            output='both',
+            parameters=[{
+                'mission_status_topic': '/mission/status',
             }])
     )
 

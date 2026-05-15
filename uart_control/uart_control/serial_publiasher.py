@@ -119,6 +119,11 @@ class XbeeSubscriber(Node):
         if not self.is_serial_healthy():
             self.get_logger().warn('Serial port is not available. Skipping UART send.')
             return
+        if len(msg.data) < 4:
+            self.get_logger().warn(
+                f'Invalid uart_command length: expected 4 values, got {len(msg.data)}'
+            )
+            return
 
         self.get_logger().debug(f'Received Angle: ID={hex(msg.data[0])}, Data={msg.data[1]}') # Rover Angle
         # self.get_logger().debug(f'Received Speed: ID={hex(msg.data[2])}, Data={msg.data[3]}') # Rover Speed
@@ -130,10 +135,22 @@ class XbeeSubscriber(Node):
             self.get_logger().info(f"Angle: {angle_str.strip()}, Speed: {speed_str.strip()}")
 
             # Serial 送信
-            self.ser.write(angle_str.encode('utf-8'))
+            angle_bytes = angle_str.encode('utf-8')
+            speed_bytes = speed_str.encode('utf-8')
+            angle_written = self.ser.write(angle_bytes)
             time.sleep(0.001)
-            self.ser.write(speed_str.encode('utf-8'))
+            speed_written = self.ser.write(speed_bytes)
             time.sleep(0.001)
+            if angle_written != len(angle_bytes) or speed_written != len(speed_bytes):
+                self.get_logger().warn(
+                    f"Serial write length mismatch: Angle {angle_written}/{len(angle_bytes)}, "
+                    f"Speed {speed_written}/{len(speed_bytes)}"
+                )
+            if msg.data[0] == 0x481 or msg.data[2] == 0x481:
+                self.get_logger().info(
+                    f"0x481をUARTへ送信しました: Angle: {angle_str.strip()}, "
+                    f"Speed: {speed_str.strip()}"
+                )
         except (SerialException, OSError, termios.error) as e:
             self.get_logger().error(f"Failed to send Serial command: {e}")
             self.close_serial()
