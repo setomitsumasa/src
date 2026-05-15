@@ -211,6 +211,13 @@ class RealSensePublisherNode(Node):
         self.get_logger().info(f"RealSense JSON 設定を読み込みました: {json_file_path}")
         return settings
 
+    def scale_roi_axis(self, min_value: int, max_value: int, target_size: int, reference_size: int):
+        if reference_size <= target_size:
+            return min_value, max_value
+
+        scale = (target_size - 1) / float(reference_size - 1)
+        return round(min_value * scale), round(max_value * scale)
+
     def make_roi(self, settings: dict, prefix: str, size: tuple):
         if not self.get_json_bool(settings, prefix + "enabled", False):
             return None
@@ -220,6 +227,12 @@ class RealSensePublisherNode(Node):
         min_y = self.get_json_int(settings, prefix + "min-y", height // 8)
         max_x = self.get_json_int(settings, prefix + "max-x", width - (width // 8) - 1)
         max_y = self.get_json_int(settings, prefix + "max-y", height - (height // 8) - 1)
+        reference_width = self.get_json_int(settings, prefix + "reference-width", max(width, max_x + 1))
+        reference_height = self.get_json_int(settings, prefix + "reference-height", max(height, max_y + 1))
+
+        original_roi = (min_x, min_y, max_x, max_y)
+        min_x, max_x = self.scale_roi_axis(min_x, max_x, width, reference_width)
+        min_y, max_y = self.scale_roi_axis(min_y, max_y, height, reference_height)
 
         min_x = max(0, min(min_x, width - 1))
         min_y = max(0, min(min_y, height - 1))
@@ -235,15 +248,79 @@ class RealSensePublisherNode(Node):
         roi.min_y = min_y
         roi.max_x = max_x
         roi.max_y = max_y
+        return roi, original_roi, (reference_width, reference_height)
+
+    def create_roi(self, min_x: int, min_y: int, max_x: int, max_y: int):
+        roi = rs.region_of_interest()
+        roi.min_x = min_x
+        roi.min_y = min_y
+        roi.max_x = max_x
+        roi.max_y = max_y
         return roi
+
+    def create_inset_roi(self, roi, size: tuple):
+        width, height = size
+        x_margin = max(1, width // 8)
+        y_margin = max(1, height // 8)
+        min_x = max(roi.min_x, x_margin)
+        max_x = min(roi.max_x, width - x_margin - 1)
+        min_y = max(roi.min_y, y_margin)
+        max_y = min(roi.max_y, height - y_margin - 1)
+        if min_x >= max_x or min_y >= max_y:
+            return None
+        return self.create_roi(min_x, min_y, max_x, max_y)
+
+    def create_default_roi(self, size: tuple):
+        width, height = size
+        x_margin = max(1, width // 8)
+        y_margin = max(1, height // 8)
+        return self.create_roi(x_margin, y_margin, width - x_margin - 1, height - y_margin - 1)
+
+    def try_set_auto_exposure_roi(self, sensor, label: str, roi, original_roi, reference_size, size: tuple):
+        candidates = [("requested", roi)]
+        inset_roi = self.create_inset_roi(roi, size)
+        if inset_roi is not None:
+            candidates.append(("inset", inset_roi))
+        candidates.append(("default-safe", self.create_default_roi(size)))
+
+        last_error = None
+        roi_sensor = sensor.as_roi_sensor()
+        for mode, candidate in candidates:
+            for attempt in range(2):
+                try:
+                    roi_sensor.set_region_of_interest(candidate)
+                    actual_roi = roi_sensor.get_region_of_interest()
+                    self.get_logger().info(
+                        f"{label} auto exposure ROI を設定しました: "
+                        f"mode={mode} attempt={attempt + 1} "
+                        f"json={original_roi} reference={reference_size} "
+                        f"applied=({actual_roi.min_x}, {actual_roi.min_y}, "
+                        f"{actual_roi.max_x}, {actual_roi.max_y})"
+                    )
+                    return
+                except RuntimeError as error:
+                    last_error = error
+                    self.get_logger().warn(
+                        f"{label} auto exposure ROI mode={mode} attempt={attempt + 1} "
+                        f"は拒否されました: {error}"
+                    )
+                    if attempt == 0:
+                        time.sleep(1.0)
+
+        self.get_logger().warn(
+            f"{label} auto exposure ROI を設定できませんでした。起動は継続します: {last_error}"
+        )
 
     def apply_auto_exposure_roi(self, settings: dict, device, depth_size: tuple, color_size: tuple):
         if not settings:
             return
 
-        depth_roi = self.make_roi(settings, "controls-autoexposure-roi-", depth_size)
-        color_roi = self.make_roi(settings, "controls-color-autoexposure-roi-", color_size)
-        if depth_roi is None and color_roi is None:
+        depth_roi_config = self.make_roi(settings, "controls-autoexposure-roi-", depth_size)
+        color_roi_config = self.make_roi(settings, "controls-color-autoexposure-roi-", color_size)
+        if color_roi_config is None and depth_roi_config is not None:
+            color_roi_config = self.make_roi(settings, "controls-autoexposure-roi-", color_size)
+
+        if depth_roi_config is None and color_roi_config is None:
             return
 
         for sensor in device.query_sensors():
@@ -251,18 +328,23 @@ class RealSensePublisherNode(Node):
                 continue
             sensor_name = sensor.get_info(rs.camera_info.name) if sensor.supports(rs.camera_info.name) else ""
             if "RGB" in sensor_name.upper() or "COLOR" in sensor_name.upper():
-                roi = color_roi
+                roi_config = color_roi_config
                 label = "Color"
             else:
-                roi = depth_roi
+                roi_config = depth_roi_config
                 label = "Depth"
 
-            if roi is None:
+            if roi_config is None:
                 continue
-            sensor.as_roi_sensor().set_region_of_interest(roi)
-            self.get_logger().info(
-                f"{label} auto exposure ROI を設定しました: "
-                f"min=({roi.min_x}, {roi.min_y}) max=({roi.max_x}, {roi.max_y})"
+            roi, original_roi, reference_size = roi_config
+            size = color_size if label == "Color" else depth_size
+            self.try_set_auto_exposure_roi(
+                sensor,
+                label,
+                roi,
+                original_roi,
+                reference_size,
+                size,
             )
 
     def make_optical_transform(self, child_frame_id: str) -> TransformStamped:
