@@ -35,7 +35,7 @@ namespace ares_nav2 {
               action_client_(rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose")),
                 spiral_params_(spiral_params) {
 	        waypoints_ = load_waypoints(waypoint_yaml_path);
-	        mission_log_to_file_ = this->declare_parameter<bool>("mission_log_to_file", true);
+	        mission_log_to_file_ = this->declare_parameter<bool>("mission_log_to_file", false);
 	        mission_log_directory_ = this->declare_parameter<std::string>(
 	            "mission_log_directory", "mission_logs");
 	        mission_status_topic_ = this->declare_parameter<std::string>(
@@ -859,21 +859,23 @@ namespace ares_nav2 {
             return;
         }
 
+        constexpr int16_t goal_reached_can_id = static_cast<int16_t>(0x481);
+        constexpr int goal_reached_repeat_count = 5;
         std_msgs::msg::Int16MultiArray uart_msg;
         uart_msg.data = {
-            static_cast<int16_t>(0x481), 0,
-            static_cast<int16_t>(0x481), 0,
+            goal_reached_can_id, 0,
+            goal_reached_can_id, 0,
         };
 
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < goal_reached_repeat_count; ++i) {
             uart_command_pub_->publish(uart_msg);
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
         RCLCPP_INFO(
             this->get_logger(),
-            "Published goal reached UART command for %s goal: id=0x481, data=0, repeats=3",
-            goal_type.c_str());
+            "0x481 goal reached UART command published for %s goal: data=0, repeats=%d",
+            goal_type.c_str(), goal_reached_repeat_count);
     }
 
     void GPSWaypointFollower::startSpiralSpinScan() {

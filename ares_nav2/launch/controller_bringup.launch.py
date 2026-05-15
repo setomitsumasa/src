@@ -52,6 +52,15 @@ def generate_launch_description():
         condition=UnlessCondition(sim),
     )
 
+    encode_image = Node(
+        package='realsense_from_lib',
+        executable='encode_image',
+        name='encode_image',
+        output='screen',
+        emulate_tty=True,
+        condition=UnlessCondition(sim),
+    )
+
     aruco_tracker = IncludeLaunchDescription(
         XMLLaunchDescriptionSource(
             os.path.join(aruco_share, 'launch', 'aruco_tracker.launch.xml')
@@ -100,25 +109,7 @@ def generate_launch_description():
 
     ld = LaunchDescription()
 
-    for action in make_logger_actions(
-        'controller_bringup',
-        [
-            '/uart_data',
-            '/uart_command',
-            '/gps/fix',
-            '/imu/data',
-            '/imu/yaw',
-            '/cmd_vel',
-            '/cmd_vel_force_stop',
-            '/livox/lidar',
-            '/converted_pointcloud2',
-            '/scan',
-            '/aruco/id',
-            '/aruco/enabled',
-            '/tf',
-            '/tf_static',
-        ],
-    ):
+    for action in make_logger_actions('controller_bringup'):
         ld.add_action(action)
 
     ld.add_action(
@@ -131,6 +122,7 @@ def generate_launch_description():
     ld.add_action(serial_subscriber)
     ld.add_action(TimerAction(period=2.0, actions=[serial_publisher]))
     ld.add_action(TimerAction(period=4.0, actions=[realsense]))
+    ld.add_action(TimerAction(period=5.0, actions=[encode_image]))
     ld.add_action(TimerAction(period=7.0, actions=[aruco_tracker]))
     ld.add_action(TimerAction(period=6.0, actions=[sensor_data]))
     ld.add_action(TimerAction(period=8.0, actions=[rover_controller]))

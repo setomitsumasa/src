@@ -24,6 +24,7 @@ ros2 launch ares_nav2 controller_bringup.launch.py
 
 - UART subscriber / publisher
 - RealSense
+- `encode_image`
 - ArUco tracker
 - ares_sensor
 - rover_controller
@@ -54,6 +55,7 @@ ros2 launch ares_nav2 main.launch.py
 - `gps_waypoint_follower_node`
 - `aruco_nav2_goal_node`
 - `yolo_tf_nav2_goal_node`
+- `log_maker/URC26_status_publisher`
 
 ## パッケージ一覧
 
@@ -87,6 +89,8 @@ ros2 launch ares_nav2 main.launch.py
 
 - [doc/README.md](./doc/README.md)
   パッケージ別ドキュメントの入口
+- [log_maker](./doc/log_maker_README.md)
+  ミッション状態の要約 publish と実験ログ収集
 - [rviz_2d_overlay_plugins](./rviz_2d_overlay_plugins/README.md)
   RViz オーバーレイ表示プラグイン
 
@@ -124,6 +128,14 @@ src/
 
 ## 最近の編集履歴
 
+### 2026-05-16
+
+- `controller_bringup.launch.py` から `realsense_from_lib/encode_image` を起動する構成に変更
+- `main.launch.py` から `log_maker/URC26_status_publisher` を起動し、`/mission/status` を要約 publish する構成に変更
+- ゴール到達時の `0x481` UART コマンドについて、`gps_waypoint_follower` 側の publish ログと `serial_publiasher.py` 側の UART 送信完了ログを追加
+- `serial_publiasher.py` に `uart_command` 配列長チェックと serial write バイト数チェックを追加
+- `0x481` が送れないように見える場合は、`rover_controller` の通常 `uart_command` が直後に流れていないか、また古い `/cmd_vel` が保持されていないか確認する
+
 ### 2026-04-15
 
 - `YOLO_detection_v2/publish_YOLOtf` を `ares_nav2/controller_bringup.launch.py` から起動する構成に変更
@@ -142,7 +154,8 @@ src/
 
 ## Logger
 
-3つの主要 launch は標準出力・標準エラーの内容を自動で保存します。
+3つの主要 launch は、ターミナルに表示される標準出力・標準エラーの内容だけを
+`terminal.log` に保存します。
 
 ```bash
 ros2 launch ares_nav2 controller_bringup.launch.py
@@ -154,27 +167,10 @@ ros2 launch ares_nav2 main.launch.py
 
 ```text
 logger/<launch名>/<YYYYmmdd_HHMMSS>/terminal.log
-logger/<launch名>/<YYYYmmdd_HHMMSS>/ros_launch_raw/
-logger/main/<YYYYmmdd_HHMMSS>/mission_logs/
 ```
 
 `terminal.log` には launch 本体の `launch.log` だけでなく、各 node の stdout/stderr
-ログもまとめて保存します。元の ROS launch ログ一式は `ros_launch_raw/` に残ります。
-`main.launch.py` の `gps_waypoint_follower` が出す mission log も、デフォルトでは同じ
-logger セッション内の `mission_logs/` に保存します。
-
-topic もデフォルトで rosbag2 に保存されます。
-
-```bash
-ros2 launch ares_nav2 main.launch.py
-```
-
-記録する topic を変更したい場合は、空白区切りで `logger_topics` を指定します。
-
-```bash
-ros2 launch ares_nav2 main.launch.py \
-  logger_topics:="/gps/fix /imu/data /cmd_vel /tf /tf_static"
-```
+ログもまとめて保存します。logger セッション内に `ros_launch_raw/`、`mission_logs/`、
+rosbag などの追加ログは作成しません。
 
 保存先を変える場合は `logger_root:=/path/to/logs` を指定します。
-topic 保存を止めたい場合は `logger_record_topics:=false` を指定します。

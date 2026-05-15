@@ -128,23 +128,7 @@ def generate_launch_description():
     # Create the launch description and populate
     ld = LaunchDescription()
 
-    for action in make_logger_actions(
-        'navigation_sim',
-        [
-            '/gps/fix',
-            '/imu/data',
-            '/imu/yaw',
-            '/odometry/gps',
-            '/odometry/local',
-            '/odometry/global',
-            '/scan',
-            '/cmd_vel',
-            '/cmd_vel_force_stop',
-            '/aruco/id',
-            '/tf',
-            '/tf_static',
-        ],
-    ):
+    for action in make_logger_actions('navigation_sim'):
         ld.add_action(action)
 
     ld.add_action(robot_localization_cmd)
