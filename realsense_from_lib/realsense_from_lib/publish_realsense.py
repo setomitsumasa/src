@@ -14,11 +14,23 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from cv_bridge import CvBridge
 import numpy as np
 import json
+import os
 import time
 try:
     import pyrealsense2 as rs
 except ImportError:
     raise ImportError("pyrealsense2 がインストールされていません: pip install pyrealsense2")
+
+
+DS5_PRODUCT_IDS = {
+    "0AD1", "0AD2", "0AD3", "0AD4", "0AD5", "0AF6", "0AFE", "0AFF",
+    "0B00", "0B01", "0B03", "0B07", "0B3A", "0B5C", "0B5B",
+}
+
+CUSTOM_JSON_PREFIXES = (
+    "controls-autoexposure-roi-",
+    "controls-color-autoexposure-roi-",
+)
 
 
 class RealSensePublisherNode(Node):
@@ -39,6 +51,8 @@ class RealSensePublisherNode(Node):
         self.declare_parameter("camera_link_frame", "camera_link")
         self.declare_parameter("color_optical_frame", "camera_color_optical_frame")
         self.declare_parameter("depth_optical_frame", "camera_depth_optical_frame")
+        self.declare_parameter("json_file_path", "")
+        self.declare_parameter("enable_advanced_mode", True)
 
         cw = self.get_parameter("color_width").value
         ch = self.get_parameter("color_height").value
@@ -51,6 +65,8 @@ class RealSensePublisherNode(Node):
         self.camera_link_frame = self.get_parameter("camera_link_frame").value
         self.color_optical_frame = self.get_parameter("color_optical_frame").value
         self.depth_optical_frame = self.get_parameter("depth_optical_frame").value
+        json_file_path = self.get_parameter("json_file_path").value
+        enable_advanced_mode = self.get_parameter("enable_advanced_mode").value
 
         self.cv_bridge = CvBridge()
         self.static_tf_broadcaster = StaticTransformBroadcaster(self)
@@ -72,13 +88,28 @@ class RealSensePublisherNode(Node):
         self.config = rs.config()
         self.camera_info_msg = None
 
-
         try:
+            stream_settings = self.load_json_settings(
+                json_file_path,
+                enable_advanced_mode=enable_advanced_mode,
+            )
+            dw = self.get_json_int(stream_settings, "stream-width", dw)
+            dh = self.get_json_int(stream_settings, "stream-height", dh)
+            cw = self.get_json_int(stream_settings, "stream-width", cw)
+            ch = self.get_json_int(stream_settings, "stream-height", ch)
+            fps = self.get_json_int(stream_settings, "stream-fps", fps)
+
             # RGBとDepthストリームの有効化
             self.config.enable_stream(rs.stream.depth, dw, dh, rs.format.z16, fps)
             self.config.enable_stream(rs.stream.color, cw, ch, rs.format.bgr8, fps)
             # パイプラインの開始
             self.profile = self.pipeline.start(self.config)
+            self.apply_auto_exposure_roi(
+                stream_settings,
+                self.profile.get_device(),
+                depth_size=(dw, dh),
+                color_size=(cw, ch),
+            )
             # 深度スケールを取得 (深度値をメートルに変換するために必要)
             self.depth_sensor = self.profile.get_device().first_depth_sensor()
             self.depth_scale = self.depth_sensor.get_depth_scale()
@@ -102,6 +133,219 @@ class RealSensePublisherNode(Node):
         # タイマーでキャプチャ＆パブリッシュ（fps に合わせて周期を設定）
         timer_period = 1.0 / max(1, fps)
         self.timer = self.create_timer(timer_period, self.timer_callback)
+
+    def normalize_optional_path(self, value) -> str:
+        """launch から渡る空文字表現を通常の空文字にそろえる。"""
+        if value is None:
+            return ""
+        path = str(value).strip().strip("'").strip('"')
+        return os.path.expanduser(path)
+
+    def get_json_int(self, settings: dict, key: str, default: int) -> int:
+        if not settings or key not in settings:
+            return default
+        try:
+            return int(settings[key])
+        except (TypeError, ValueError):
+            self.get_logger().warn(
+                f"JSON の {key}={settings[key]!r} を整数として読めないため、{default} を使います。"
+            )
+            return default
+
+    def get_json_bool(self, settings: dict, key: str, default: bool) -> bool:
+        if not settings or key not in settings:
+            return default
+        value = settings[key]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
+    def find_advanced_mode_device(self):
+        ctx = rs.context()
+        for dev in ctx.query_devices():
+            if not dev.supports(rs.camera_info.product_id):
+                continue
+            product_id = str(dev.get_info(rs.camera_info.product_id)).upper()
+            if product_id not in DS5_PRODUCT_IDS:
+                continue
+            if dev.supports(rs.camera_info.name):
+                self.get_logger().info(
+                    f"Advanced Mode 対応デバイスを検出: {dev.get_info(rs.camera_info.name)}"
+                )
+            return dev
+        raise RuntimeError("Advanced Mode 対応の RealSense D400 系デバイスが見つかりません。")
+
+    def load_json_settings(self, json_file_path: str, enable_advanced_mode: bool) -> dict:
+        json_file_path = self.normalize_optional_path(json_file_path)
+        if not json_file_path:
+            return {}
+        if not os.path.isfile(json_file_path):
+            raise FileNotFoundError(f"RealSense JSON 設定ファイルが見つかりません: {json_file_path}")
+
+        with open(json_file_path, "r", encoding="utf-8") as file:
+            json_text = file.read().strip()
+        settings = json.loads(json_text)
+        advanced_settings = {
+            key: value
+            for key, value in settings.items()
+            if not key.startswith(CUSTOM_JSON_PREFIXES)
+        }
+
+        dev = self.find_advanced_mode_device()
+        advnc_mode = rs.rs400_advanced_mode(dev)
+        retry_count = 0
+        while enable_advanced_mode and not advnc_mode.is_enabled() and retry_count < 3:
+            self.get_logger().info("RealSense Advanced Mode を有効化します。デバイスが再接続されます。")
+            advnc_mode.toggle_advanced_mode(True)
+            time.sleep(5)
+            dev = self.find_advanced_mode_device()
+            advnc_mode = rs.rs400_advanced_mode(dev)
+            retry_count += 1
+
+        if not advnc_mode.is_enabled():
+            raise RuntimeError("RealSense Advanced Mode が無効なため JSON 設定を読み込めません。")
+
+        advnc_mode.load_json(json.dumps(advanced_settings))
+        self.get_logger().info(f"RealSense JSON 設定を読み込みました: {json_file_path}")
+        return settings
+
+    def scale_roi_axis(self, min_value: int, max_value: int, target_size: int, reference_size: int):
+        if reference_size <= target_size:
+            return min_value, max_value
+
+        scale = (target_size - 1) / float(reference_size - 1)
+        return round(min_value * scale), round(max_value * scale)
+
+    def make_roi(self, settings: dict, prefix: str, size: tuple):
+        if not self.get_json_bool(settings, prefix + "enabled", False):
+            return None
+
+        width, height = size
+        min_x = self.get_json_int(settings, prefix + "min-x", width // 8)
+        min_y = self.get_json_int(settings, prefix + "min-y", height // 8)
+        max_x = self.get_json_int(settings, prefix + "max-x", width - (width // 8) - 1)
+        max_y = self.get_json_int(settings, prefix + "max-y", height - (height // 8) - 1)
+        reference_width = self.get_json_int(settings, prefix + "reference-width", max(width, max_x + 1))
+        reference_height = self.get_json_int(settings, prefix + "reference-height", max(height, max_y + 1))
+
+        original_roi = (min_x, min_y, max_x, max_y)
+        min_x, max_x = self.scale_roi_axis(min_x, max_x, width, reference_width)
+        min_y, max_y = self.scale_roi_axis(min_y, max_y, height, reference_height)
+
+        min_x = max(0, min(min_x, width - 1))
+        min_y = max(0, min(min_y, height - 1))
+        max_x = max(0, min(max_x, width - 1))
+        max_y = max(0, min(max_y, height - 1))
+        if min_x >= max_x or min_y >= max_y:
+            raise ValueError(
+                f"不正な ROI 設定です: {prefix} min=({min_x}, {min_y}) max=({max_x}, {max_y})"
+            )
+
+        roi = rs.region_of_interest()
+        roi.min_x = min_x
+        roi.min_y = min_y
+        roi.max_x = max_x
+        roi.max_y = max_y
+        return roi, original_roi, (reference_width, reference_height)
+
+    def create_roi(self, min_x: int, min_y: int, max_x: int, max_y: int):
+        roi = rs.region_of_interest()
+        roi.min_x = min_x
+        roi.min_y = min_y
+        roi.max_x = max_x
+        roi.max_y = max_y
+        return roi
+
+    def create_inset_roi(self, roi, size: tuple):
+        width, height = size
+        x_margin = max(1, width // 8)
+        y_margin = max(1, height // 8)
+        min_x = max(roi.min_x, x_margin)
+        max_x = min(roi.max_x, width - x_margin - 1)
+        min_y = max(roi.min_y, y_margin)
+        max_y = min(roi.max_y, height - y_margin - 1)
+        if min_x >= max_x or min_y >= max_y:
+            return None
+        return self.create_roi(min_x, min_y, max_x, max_y)
+
+    def create_default_roi(self, size: tuple):
+        width, height = size
+        x_margin = max(1, width // 8)
+        y_margin = max(1, height // 8)
+        return self.create_roi(x_margin, y_margin, width - x_margin - 1, height - y_margin - 1)
+
+    def try_set_auto_exposure_roi(self, sensor, label: str, roi, original_roi, reference_size, size: tuple):
+        candidates = [("requested", roi)]
+        inset_roi = self.create_inset_roi(roi, size)
+        if inset_roi is not None:
+            candidates.append(("inset", inset_roi))
+        candidates.append(("default-safe", self.create_default_roi(size)))
+
+        last_error = None
+        roi_sensor = sensor.as_roi_sensor()
+        for mode, candidate in candidates:
+            for attempt in range(2):
+                try:
+                    roi_sensor.set_region_of_interest(candidate)
+                    actual_roi = roi_sensor.get_region_of_interest()
+                    self.get_logger().info(
+                        f"{label} auto exposure ROI を設定しました: "
+                        f"mode={mode} attempt={attempt + 1} "
+                        f"json={original_roi} reference={reference_size} "
+                        f"applied=({actual_roi.min_x}, {actual_roi.min_y}, "
+                        f"{actual_roi.max_x}, {actual_roi.max_y})"
+                    )
+                    return
+                except RuntimeError as error:
+                    last_error = error
+                    self.get_logger().warn(
+                        f"{label} auto exposure ROI mode={mode} attempt={attempt + 1} "
+                        f"は拒否されました: {error}"
+                    )
+                    if attempt == 0:
+                        time.sleep(1.0)
+
+        self.get_logger().warn(
+            f"{label} auto exposure ROI を設定できませんでした。起動は継続します: {last_error}"
+        )
+
+    def apply_auto_exposure_roi(self, settings: dict, device, depth_size: tuple, color_size: tuple):
+        if not settings:
+            return
+
+        depth_roi_config = self.make_roi(settings, "controls-autoexposure-roi-", depth_size)
+        color_roi_config = self.make_roi(settings, "controls-color-autoexposure-roi-", color_size)
+        if color_roi_config is None and depth_roi_config is not None:
+            color_roi_config = self.make_roi(settings, "controls-autoexposure-roi-", color_size)
+
+        if depth_roi_config is None and color_roi_config is None:
+            return
+
+        for sensor in device.query_sensors():
+            if not sensor.is_roi_sensor():
+                continue
+            sensor_name = sensor.get_info(rs.camera_info.name) if sensor.supports(rs.camera_info.name) else ""
+            if "RGB" in sensor_name.upper() or "COLOR" in sensor_name.upper():
+                roi_config = color_roi_config
+                label = "Color"
+            else:
+                roi_config = depth_roi_config
+                label = "Depth"
+
+            if roi_config is None:
+                continue
+            roi, original_roi, reference_size = roi_config
+            size = color_size if label == "Color" else depth_size
+            self.try_set_auto_exposure_roi(
+                sensor,
+                label,
+                roi,
+                original_roi,
+                reference_size,
+                size,
+            )
 
     def make_optical_transform(self, child_frame_id: str) -> TransformStamped:
         """camera_link から optical frame への static TF を作る。"""
