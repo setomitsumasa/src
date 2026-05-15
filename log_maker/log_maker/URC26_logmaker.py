@@ -288,6 +288,8 @@ class URC26StatusPublisher(Node):
             return self.format_target_reached_status()
 
         if phase in {"NAV2_ABORTED", "NAV2_CANCELED"}:
+            if self.last_nav_mode == "target":
+                return self.format_target_detected_status()
             return self.format_abort_status(mission_message)
 
         if phase == "MISSION_DONE":
