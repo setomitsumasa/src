@@ -35,7 +35,7 @@
     "controls-laserstate": "on",
     "controls-autoexposure-roi-enabled": "True",
     "controls-autoexposure-roi-min-x": "0",
-    "controls-autoexposure-roi-min-y": "360",
+    "controls-autoexposure-roi-min-y": "0",
     "controls-autoexposure-roi-max-x": "1279",
     "controls-autoexposure-roi-max-y": "719",
     "controls-autoexposure-roi-reference-width": "1280",
