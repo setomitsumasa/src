@@ -19,13 +19,13 @@
     # https://docs.opencv.org/4.2.0/d5/dae/tutorial_aruco_detection.html
     aruco:
       # minimum window size for adaptive thresholding before finding contours
-      adaptiveThreshWinSizeMin: 3
+      adaptiveThreshWinSizeMin: 7
 
       # maximum window size for adaptive thresholding before finding contours 
       adaptiveThreshWinSizeMax: 23
 
       # increments from adaptiveThreshWinSizeMin to adaptiveThreshWinSizeMax during the thresholding
-      adaptiveThreshWinSizeStep: 10
+      adaptiveThreshWinSizeStep: 8
 
       # constant for adaptive thresholding before finding contours
       adaptiveThreshConstant: 7.0

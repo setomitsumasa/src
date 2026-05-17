@@ -97,19 +97,8 @@ private:
     range_max_;
   bool use_inf_;
   bool apply_slope_filter_;
-  bool exclude_height_band_;
-  bool detect_negative_obstacles_;
   double inf_epsilon_;
   double max_slope_angle_;
-  double exclude_height_min_;
-  double exclude_height_max_;
-  double negative_obstacle_ground_min_height_;
-  double negative_obstacle_ground_max_height_;
-  double negative_obstacle_drop_height_;
-  double negative_obstacle_slope_angle_;
-  double negative_obstacle_comparison_distance_;
-  double negative_obstacle_range_bin_size_;
-  double negative_obstacle_angle_bin_size_;
   int normal_k_search_;
   double voxel_leaf_size_;
   double search_radius_; //上の代わり

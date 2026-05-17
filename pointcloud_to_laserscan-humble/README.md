@@ -19,17 +19,6 @@ This ROS 2 component projects `sensor_msgs/msg/PointCloud2` messages into `senso
 
 * `min_height` (double, default: 2.2e-308) - The minimum height to sample in the point cloud in meters.
 * `max_height` (double, default: 1.8e+308) - The maximum height to sample in the point cloud in meters.
-* `exclude_height_band` (boolean, default: false) - If enabled, discard points whose height is within `exclude_height_min` and `exclude_height_max` before publishing the filtered point cloud.
-* `exclude_height_min` (double, default: 0.0) - The lower bound of the height band to exclude in meters.
-* `exclude_height_max` (double, default: 0.0) - The upper bound of the height band to exclude in meters.
-* `detect_negative_obstacles` (boolean, default: false) - If enabled, add virtual obstacle points at observed drop edges where two ground cells show a steep enough height drop.
-* `negative_obstacle_ground_min_height` (double, default: `min_height`) - The lower height bound for points that may be used as ground candidates.
-* `negative_obstacle_ground_max_height` (double, default: `max_height`) - The upper height bound for points that may be used as ground candidates.
-* `negative_obstacle_drop_height` (double, default: 0.2) - Minimum downward height difference between two observed ground cells in meters.
-* `negative_obstacle_slope_angle` (double, default: 30.0) - Minimum local drop angle in degrees, computed with `atan2(dz, horizontal_distance)`.
-* `negative_obstacle_comparison_distance` (double, default: 0.3) - Approximate horizontal distance in meters between the near and far ground cells to compare.
-* `negative_obstacle_range_bin_size` (double, default: 0.1) - Radial bin size in meters for negative obstacle detection.
-* `negative_obstacle_angle_bin_size` (double, default: `angle_increment`) - Angular bin size in radians for negative obstacle detection.
 * `angle_min` (double, default: -π) - The minimum scan angle in radians.
 * `angle_max` (double, default: π) - The maximum scan angle in radians.
 * `angle_increment` (double, default: π/180) - Resolution of laser scan in radians per ray.

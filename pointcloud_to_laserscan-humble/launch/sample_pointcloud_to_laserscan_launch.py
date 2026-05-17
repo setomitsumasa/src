@@ -58,19 +58,8 @@ def generate_launch_description():
                 # pointcloud_to_laserscan と RViz 表示の補正をまとめて調整できる。
                 'target_frame': livox_mount_config['target_frame'],
                 'transform_tolerance': 0.01,
-                'min_height': -0.3,  # sim: 0.8, real: -0.3
+                'min_height': 0.7,  # sim: 0.8, real: -0.3, 0426のtestでは実機も0.8で良さそうだった
                 'max_height': 1.6,  # sim: 1.6, real: 1.6
-                'exclude_height_band': True,
-                'exclude_height_min': 0.2,
-                'exclude_height_max': 0.6,
-                'detect_negative_obstacles': True,
-                'negative_obstacle_ground_min_height': -0.3,
-                'negative_obstacle_ground_max_height': 0.2,
-                'negative_obstacle_drop_height': 0.2,
-                'negative_obstacle_slope_angle': 30.0,
-                'negative_obstacle_comparison_distance': 0.3,
-                'negative_obstacle_range_bin_size': 0.1,
-                'negative_obstacle_angle_bin_size': 0.02,
                 'angle_min': -1.57,
                 'angle_max': 1.57,
                 'angle_increment': 0.005,
@@ -79,7 +68,8 @@ def generate_launch_description():
                 'range_max': 8.0,
                 'use_inf': True,
                 'inf_epsilon': 1.0,
-                'apply_slope_filter': True
+                'apply_slope_filter': True,
+                'voxel_leaf_size': 0.05
             }],
             name='pointcloud_angle_filter'
         ),
@@ -95,8 +85,8 @@ def generate_launch_description():
             parameters=[{
                 'target_frame': livox_mount_config['target_frame'],
                 'transform_tolerance': 0.01,
-                'min_height': -0.3,  # sim: 0.8, real: -0.3
-                'max_height': 1.6,  # sim: 1.6, real: 1.6 s
+                'min_height': 0.7,  # sim: 0.8, real: -0.3
+                'max_height': 1.6,  # sim: 1.6, real: 1.6
                 'angle_min': -1.57,
                 'angle_max': 1.57,
                 'angle_increment': 0.005,

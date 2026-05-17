@@ -43,7 +43,7 @@ public:
         // base_link -> camera_link のオフセット [m]
         camera_link_x_ = this->declare_parameter<double>("camera_link.x", 0.0);
         camera_link_y_ = this->declare_parameter<double>("camera_link.y", 0.0);
-        camera_link_z_ = this->declare_parameter<double>("camera_link.z", 0.5);
+        camera_link_z_ = this->declare_parameter<double>("camera_link.z", 0.6);
         // base_link -> livox_frame のオフセット [m]（デフォルトは camera_link と同じ）
         livox_frame_x_ = this->declare_parameter<double>("livox_frame.x", camera_link_x_);
         livox_frame_y_ = this->declare_parameter<double>("livox_frame.y", camera_link_y_);
@@ -68,7 +68,7 @@ public:
 
 private:
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
-    {
+    {  
         const auto & q = msg->orientation;
         if (!std::isfinite(q.x) || !std::isfinite(q.y) ||
             !std::isfinite(q.z) || !std::isfinite(q.w))
