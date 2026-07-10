@@ -1,0 +1,12 @@
+# --- FAST-LIO2 generated outputs (do NOT commit large maps / logs) ---
+FAST_LIO_ROS2/PCD/*.pcd
+FAST_LIO_ROS2/Log/*.txt
+FAST_LIO_ROS2/Log/*.csv
+
+# --- ERC saved maps produced during mapping runs ---
+**/maps/*.pcd
+
+# --- editor / OS cruft ---
+*.pyc
+__pycache__/
+.DS_Store

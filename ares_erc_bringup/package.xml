@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ares_erc_bringup</name>
+  <version>0.0.1</version>
+  <description>
+    ERC (European Rover Challenge) GPS-free autonomy bring-up for the ARES rover.
+    Phase 0: Livox Mid-360 + FAST-LIO2 mapping to a saved .pcd point-cloud map.
+    Holds ERC-specific launch/config; the FAST-LIO2 backbone (package: fast_lio)
+    and the Livox driver (livox_ros_driver2) are used unmodified.
+  </description>
+  <maintainer email="setomitsumasa@gmail.com">setomitsumasa</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Packages this bring-up launches at runtime -->
+  <exec_depend>fast_lio</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
