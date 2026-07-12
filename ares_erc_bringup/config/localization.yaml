@@ -1,0 +1,36 @@
+# ERC Phase 1b — prior-map relocalization (map_anchor node).
+# GICP-aligns the live FAST-LIO cloud (/cloud_registered, in camera_init/odom frame)
+# to the saved prior map (.pcd, in the map frame) and publishes a low-passed
+# map -> camera_init correction TF. Single authority: this node owns map->odom only;
+# FAST-LIO owns odom(camera_init)->body.
+map_anchor:
+  ros__parameters:
+    # prior_map_path is normally overridden by the launch (resolved absolute path).
+    prior_map_path: ""
+    map_frame: "map"                 # global / prior-map frame (Nav2 global frame later)
+    odom_frame: "camera_init"        # FAST-LIO world frame == odom role
+    cloud_topic: "/cloud_registered" # FAST-LIO world-frame current scan
+
+    voxel_leaf: 0.3                  # [m] downsample leaf for both prior map and live source
+    accum_window_sec: 1.0            # [s] rolling window of live scans merged into the GICP source
+
+    # GICP
+    gicp_max_corr_dist: 1.0          # [m] correspondence cutoff
+    gicp_max_iter: 30
+    update_period: 1.0               # [s] how often to re-run GICP (low rate = cheap on CPU)
+
+    # Acceptance gates (reject bad matches / discontinuous jumps -> §6.4 safety valves)
+    fitness_max: 0.3                 # accept only if GICP mean-squared fitness < this
+    max_trans_step: 1.0              # [m]   reject if a single correction jumps farther than this
+    max_rot_step: 0.5               # [rad] reject if a single correction rotates more than this
+
+    # Low-pass of the accepted correction (0..1; smaller = smoother, no snapping)
+    lowpass_alpha: 0.3
+
+    # Initial guess for map->camera_init (start pose is roughly known, ERC §3.4).
+    # Identity by default (FAST-LIO starts ~at the mapped start point).
+    init_xyz: [0.0, 0.0, 0.0]
+    init_yaw: 0.0                    # [rad]
+
+    # TF broadcast rate (kept steady even between GICP updates)
+    tf_publish_rate: 20.0            # [Hz]

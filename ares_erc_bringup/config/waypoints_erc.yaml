@@ -1,0 +1,19 @@
+# ERC Phase 1 — waypoints in the DATUM frame (origin = start point, start-relative
+# Cartesian [m]; NOT GNSS). ERC gives 4 waypoints to visit + a finish (return to start).
+#
+# datum.yaw_offset_deg: yaw of the datum frame relative to FAST-LIO's camera_init
+#   (= the sensor's initial heading). 0.0 => datum axes == initial heading, so a
+#   waypoint (x, y) lands at (x, y) on the scanned map. Set this from the known
+#   initial heading for the real ERC datum; refined later by ArUco anchors.
+#
+# For the indoor test: measure a few recognizable spots in your room relative to
+# the START pose (x = forward, y = left) and replace the values below.
+datum:
+  yaw_offset_deg: 0.0
+
+waypoints:
+  - {name: WP1, x: 2.0, y: 0.0, z: 0.0}
+  - {name: WP2, x: 2.0, y: 2.0, z: 0.0}
+  - {name: WP3, x: 0.0, y: 2.0, z: 0.0}
+  - {name: WP4, x: -1.5, y: 1.0, z: 0.0}
+  - {name: FINISH, x: 0.0, y: 0.0, z: 0.0}
