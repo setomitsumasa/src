@@ -1,0 +1,66 @@
+# Indoor test landmark survey, 2026-07-28.
+#
+# Generated with aruco_calibrate.launch.py while GICP was locked at the prior-map
+# capture start pose. Valid only while tags 51/52 and the rigid camera/LiDAR mounting
+# remain unchanged. This is NOT the ERC Mars Yard landmark table.
+coordinate_frame: map
+
+# datum is independent of localization landmarks. These values are retained only for
+# the waypoint visualization and do not enter map-coordinate ArUco initialization.
+datum:
+  calibrated: true
+  yaw_offset_deg: 20.0
+  xy_offset: [0.0, 0.0]
+
+markers:
+  - {id: 51, x: 1.376464, y: 1.123098, z: 0.569007}
+  - {id: 52, x: 4.619159, y: 0.706881, z: 0.140299}
+
+landmark:
+  face_to_pole_depth: 0.0
+
+gates:
+  max_range: 6.0
+  max_jump_trans: 1.5
+  max_jump_yaw: 1.0
+  residual_max: 0.15
+  max_pair_distance_error: 0.20
+  max_pair_distance_relative_error: 0.10
+  min_view_angle_deg: 20.0
+  min_baseline_2pt: 1.5
+
+update:
+  accum_window_sec: 2.0
+  update_period: 0.5
+  lowpass_alpha: 0.2
+  tf_publish_rate: 20.0
+  max_tf_wait_sec: 0.25
+  yaw_update_max_range: 1.5
+  single_marker_yaw_weight: 0.3
+  # After multi-marker global initialization, one known tag constrains x/y only.
+  # FAST-LIO/GICP retains yaw; three same-ID estimates must agree before fusion.
+  single_marker_tracking_enabled: true
+  single_marker_min_consistent: 3
+  single_marker_consistency_trans: 0.15
+  single_marker_history_sec: 2.0
+
+freeze:
+  min_multimarker_updates: 3
+  max_wait_sec: 20.0
+
+calibration:
+  created_utc: '2026-07-27T19:25:09.069379+00:00'
+  method: median of timestamped detections during accepted GICP lock
+  fitness_max: 0.02
+  face_to_pole_depth: 0.0
+  diagnostics:
+    '51':
+      raw_samples: 208
+      kept_samples: 163
+      radial_mad_m: 0.031550
+      max_kept_residual_m: 0.146797
+    '52':
+      raw_samples: 208
+      kept_samples: 134
+      radial_mad_m: 0.032117
+      max_kept_residual_m: 0.161091

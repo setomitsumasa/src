@@ -1,0 +1,25 @@
+# Offline arbitrary-start test. The map->datum values are treated as already calibrated.
+datum:
+  calibrated: true
+  yaw_offset_deg: 30.0
+  xy_offset: [0.2, -0.1]
+
+landmark:
+  face_to_pole_depth: 0.0
+
+markers:
+  - {id: 0, x: 2.0, y: 0.0, z: 0.3}
+  - {id: 1, x: 2.0, y: 2.0, z: 0.3}
+  - {id: 2, x: 0.0, y: 2.0, z: 0.3}
+
+gates:
+  max_range: 10.0
+  residual_max: 0.2
+  max_pair_distance_error: 0.20
+  max_pair_distance_relative_error: 0.10
+  min_baseline_2pt: 1.5
+update:
+  accum_window_sec: 2.0
+  update_period: 0.2
+  lowpass_alpha: 0.2
+  tf_publish_rate: 20.0

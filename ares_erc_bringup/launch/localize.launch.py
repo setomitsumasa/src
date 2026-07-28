@@ -17,11 +17,12 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -41,12 +42,24 @@ def generate_launch_description():
     # Allow a parent launch (e.g. odometry.launch.py) to own RViz itself.
     declare_use_rviz = DeclareLaunchArgument(
         'rviz', default_value='true', description='start RViz (false when included)')
+    # Phase 3: aruco_localize sets this false so aruco_map_anchor owns map->datum.
+    declare_datum_tf = DeclareLaunchArgument(
+        'datum_tf', default_value='true',
+        description='let erc_waypoints publish the static map->datum TF')
+    declare_wait_aruco = DeclareLaunchArgument(
+        'wait_for_aruco_init', default_value='false',
+        description='hold GICP until a consistent multi-marker global pose is available')
 
     # 1) Mid-360 + FAST-LIO2 (own RViz off; we use our map-frame RViz below).
-    mapping = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(share, 'launch', 'mapping_mid360.launch.py')),
-        launch_arguments={'rviz': 'false'}.items(),
+    # Scope the child launch argument. Without GroupAction(scoped=True), its
+    # rviz:=false leaked into this launch and disabled the map-frame RViz below.
+    mapping = GroupAction(
+        scoped=True,
+        actions=[IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(share, 'launch', 'mapping_mid360.launch.py')),
+            launch_arguments={'rviz': 'false'}.items(),
+        )],
     )
 
     # 2) Relocalization: map -> camera_init correction via GICP on the prior map.
@@ -55,13 +68,18 @@ def generate_launch_description():
         executable='map_anchor',
         name='map_anchor',
         output='screen',
-        parameters=[loc_cfg, {'prior_map_path': pcd}],
+        parameters=[loc_cfg, {
+            'prior_map_path': pcd,
+            'wait_for_aruco_initialization': ParameterValue(
+                LaunchConfiguration('wait_for_aruco_init'), value_type=bool),
+        }],
     )
 
     # 3) datum static TF + waypoint markers/poses (Phase 1a node, map-frame default).
     waypoints = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(share, 'launch', 'erc_waypoints.launch.py'))
+            os.path.join(share, 'launch', 'erc_waypoints.launch.py')),
+        launch_arguments={'publish_datum_tf': LaunchConfiguration('datum_tf')}.items(),
     )
 
     # 4) Prior map as a PointCloud2 in `map` for the RViz overlay.
@@ -86,6 +104,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        declare_pcd, declare_loc, declare_rviz, declare_use_rviz,
+        declare_pcd, declare_loc, declare_rviz, declare_use_rviz, declare_datum_tf,
+        declare_wait_aruco,
         mapping, map_anchor, waypoints, prior_map, rviz,
     ])

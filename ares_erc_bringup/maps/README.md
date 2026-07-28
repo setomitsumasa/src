@@ -15,10 +15,16 @@ Two ways it gets populated:
 
 1. **Self-made (scan the environment):** FAST-LIO writes the scan to
    `FAST_LIO_ROS2/PCD/scans.pcd` on Ctrl-C. After you verify the scan looks right,
-   *promote* it to the active prior map:
+   *promote* it to the active prior map through `downsample_map` (do **not** just `cp` it
+   raw — FAST-LIO's accumulated cloud is tens of millions of points, which `pcd_to_pointcloud`
+   then has to hold/render whole for the RViz `/erc/prior_map` display and can OOM-kill RViz;
+   `map_anchor`'s own GICP re-downsamples to `voxel_leaf` — 0.3 m by default — regardless, so
+   nothing downstream needs the raw resolution):
    ```bash
-   cp ~/real_ws/src/FAST_LIO_ROS2/PCD/scans.pcd \
-      ~/real_ws/src/ares_erc_bringup/maps/prior_map.pcd
+   ros2 run ares_erc_bringup downsample_map \
+     ~/real_ws/src/FAST_LIO_ROS2/PCD/scans.pcd \
+     ~/real_ws/src/ares_erc_bringup/maps/prior_map.pcd \
+     0.05   # leaf size [m], optional (default 0.05 = 5 cm; keeps a room visually detailed)
    ```
 2. **Externally provided map** (e.g. an ERC-supplied `.pcd`): just drop it here as
    `prior_map.pcd`:

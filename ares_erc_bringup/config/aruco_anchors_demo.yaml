@@ -1,0 +1,31 @@
+# ERC Phase 3 — DEMO anchors for the offline convergence test (aruco_anchor_demo.launch.py).
+# 3 known markers so the full SE(2) (yaw + translation) fit is exercised. The seed below
+# is deliberately wrong (0 deg / 0,0); aruco_fake_detections injects a ground-truth
+# map->datum (default 30 deg / 0.2,-0.1) and the anchor must converge to it.
+datum:
+  calibrated: false
+  yaw_offset_deg: 0.0
+  xy_offset: [0.0, 0.0]
+
+landmark:
+  face_to_pole_depth: 0.0
+
+markers:
+  - {id: 0, x: 2.0, y: 0.0, z: 0.3}
+  - {id: 1, x: 2.0, y: 2.0, z: 0.3}
+  - {id: 2, x: 0.0, y: 2.0, z: 0.3}
+
+gates:
+  max_range: 6.0
+  max_jump_trans: 1.5
+  max_jump_yaw: 1.0
+  residual_max: 1.0
+  max_pair_distance_error: 0.20
+  max_pair_distance_relative_error: 0.10
+update:
+  accum_window_sec: 2.0
+  update_period: 0.5
+  lowpass_alpha: 0.2
+  tf_publish_rate: 20.0
+  yaw_update_max_range: 1.5
+  single_marker_yaw_weight: 0.3

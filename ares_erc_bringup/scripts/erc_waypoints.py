@@ -41,10 +41,14 @@ class ErcWaypoints(Node):
         self.declare_parameter('waypoints_file', '')
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('datum_frame', 'datum')
+        # Phase 3: when aruco_map_anchor owns the (dynamic) map->datum TF, set this false
+        # so we don't double-publish that edge (single-authority TF, CLAUDE.md §6.2).
+        self.declare_parameter('publish_datum_tf', True)
 
         wp_file = self.get_parameter('waypoints_file').value
         self.map_frame = self.get_parameter('map_frame').value
         self.datum_frame = self.get_parameter('datum_frame').value
+        self.publish_datum_tf = self.get_parameter('publish_datum_tf').value
 
         if not wp_file or not os.path.isfile(wp_file):
             raise RuntimeError(f'waypoints_file not found: {wp_file!r}')
@@ -62,13 +66,16 @@ class ErcWaypoints(Node):
         self.pose_pub = self.create_publisher(PoseArray, '/erc/waypoint_poses', latched)
 
         self.static_bc = StaticTransformBroadcaster(self)
-        self._publish_static_tf()
+        if self.publish_datum_tf:
+            self._publish_static_tf()
 
         self._publish_waypoints()
         self.create_timer(1.0, self._publish_waypoints)  # cheap refresh
+        tf_note = (f'TF {self.map_frame} -> {self.datum_frame}' if self.publish_datum_tf
+                   else 'map->datum TF delegated to aruco_map_anchor')
         self.get_logger().info(
             f'ERC waypoints: {len(self.waypoints)} pts, datum yaw='
-            f'{math.degrees(self.yaw_offset):.1f} deg, TF {self.map_frame} -> {self.datum_frame}')
+            f'{math.degrees(self.yaw_offset):.1f} deg, {tf_note}')
 
     def _publish_static_tf(self):
         t = TransformStamped()

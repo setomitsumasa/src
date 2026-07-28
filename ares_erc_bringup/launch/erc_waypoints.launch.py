@@ -20,12 +20,19 @@ def generate_launch_description():
     declare_wp = DeclareLaunchArgument(
         'waypoints_file', default_value=default_wp,
         description='ERC datum-frame waypoints yaml')
+    # Phase 3: set false to let aruco_map_anchor own the (dynamic) map->datum TF.
+    declare_datum_tf = DeclareLaunchArgument(
+        'publish_datum_tf', default_value='true',
+        description='publish the static map->datum TF (false when aruco anchor runs)')
 
     node = Node(
         package='ares_erc_bringup',
         executable='erc_waypoints.py',
         name='erc_waypoints',
         output='screen',
-        parameters=[{'waypoints_file': waypoints_file}],
+        parameters=[{
+            'waypoints_file': waypoints_file,
+            'publish_datum_tf': LaunchConfiguration('publish_datum_tf'),
+        }],
     )
-    return LaunchDescription([declare_wp, node])
+    return LaunchDescription([declare_wp, declare_datum_tf, node])

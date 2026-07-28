@@ -6,6 +6,11 @@ FAST_LIO_ROS2/Log/*.csv
 # --- ERC saved maps produced during mapping runs ---
 **/maps/*.pcd
 
+# --- colcon workspace outputs (regenerated from src; machine-specific) ---
+/build/
+/install/
+/log/
+
 # --- editor / OS cruft ---
 *.pyc
 __pycache__/

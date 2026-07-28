@@ -1,0 +1,84 @@
+# ERC Phase 3 — ArUco global-anchor table + tuning (read directly by aruco_map_anchor.py).
+#
+# Prefer `map`: marker coordinates are surveyed by aruco_calibrate.launch.py while GICP
+# is well locked, then arbitrary-start localization has no dependency on map->datum.
+# `datum` is retained for the legacy/provided-table route.
+coordinate_frame: datum
+#
+# datum.*: the INITIAL guess of map->datum (seed). Keep consistent with
+#   waypoints_erc.yaml. Since datum origin == map origin == start point, this is
+#   essentially a yaw; ArUco then refines it.
+datum:
+  # true: the values below already describe the fixed prior-map -> datum alignment.
+  # Required for arbitrary-start localization: known tags can then initialize
+  # map -> camera_init before GICP starts. Set false only while calibrating datum from
+  # the SAME physical start pose used to build the prior map.
+  calibrated: true
+  yaw_offset_deg: 20.0        # seed yaw of datum wrt map (== waypoints_erc.yaml)
+  xy_offset: [0.0, 0.0]      # seed translation [m] (usually ~0; start point)
+
+# Known ArUco markers: id -> position of the marker in the DATUM frame [m].
+# Fill from the ERC-provided ID<->coordinate table (August) or, for the indoor test,
+# from your measured marker position (x = forward, y = left, z = height off the floor).
+# marker_size / marker_dict live in the aruco_opencv config; match your real marker.
+# Indoor placeholder values restored after the 2026-07-28 provisional remeasurement
+# proved to mix map/datum axes. Replace these with a surveyed table before enabling
+# ArUco global initialization in a real run.
+markers:
+  - {id: 51, x: 1.50, y: 0.40, z: 0.80}
+  - {id: 52, x: 4.00, y: -0.90, z: 0.00}
+  # - {id: 2, x: 0.0, y: 2.0, z: 0.3}
+
+# Detection is the visible tag-face center, while ERC coordinates refer to the pole
+# axis at the same height. Keep 0.0 for the current flat indoor test tags. For the real
+# 250 mm four-faced box this is expected to be approximately 0.125 m, but confirm the
+# delivered landmark geometry before changing it.
+landmark:
+  face_to_pole_depth: 0.0
+
+# Acceptance gates — bad correspondences inject large errors, so reject aggressively (§6.4).
+gates:
+  max_range: 6.0             # [m] id52 in the indoor test is ~4.6 m away
+  max_jump_trans: 1.5        # [m] reject a GROSS outlier fit (start heading is roughly known,
+  max_jump_yaw: 1.0          # [rad] so legit initial corrections stay under these; smoothness
+                             #       comes from lowpass_alpha, multi-marker consistency from residual_max)
+  residual_max: 1.0          # [m] reject a fit whose RMS residual exceeds this (weighted RMS for >=2 markers)
+  # Rigid-transform invariant sanity check, performed in 3-D before the planar fit.
+  # Current hand-measured indoor coordinates must be remeasured if this rejects them.
+  max_pair_distance_error: 0.20           # [m] maximum tag-to-tag spacing mismatch
+  max_pair_distance_relative_error: 0.10  # fraction (0.10 = 10%)
+  min_view_angle_deg: 20.0   # [deg off grazing] planar-pose-ambiguity floor; 90=dead-on
+                             #       frontal, 0=edge-on. Applies to single-marker updates.
+  min_baseline_2pt: 1.5      # [m] datum-frame separation between exactly 2 simultaneously-visible known
+                             #       markers, below which the 2-point Procrustes yaw fit is fragile
+                             #       (near-collinear from the camera) -> falls back to the closer
+                             #       marker's single-marker path instead.
+
+# Correction update.
+update:
+  accum_window_sec: 2.0      # [s] retention/expiry window; multi-tag fits still require
+                             #       all tags to come from the exact same image timestamp
+  update_period: 0.5         # [s] how often to recompute the fit
+  lowpass_alpha: 0.2         # 0..1 low-pass of the accepted correction (smaller = smoother, no snap)
+  tf_publish_rate: 20.0      # [Hz] steady map->datum broadcast between fits
+  max_tf_wait_sec: 0.25      # [s] queue image until exact capture-time TF arrives;
+                             #       drop after this instead of using biased latest TF
+  # Monocular ambiguity safety (single-marker case): only pull yaw when close & mostly frontal.
+  yaw_update_max_range: 1.5  # [m] update yaw from a lone marker only if closer than this
+  single_marker_yaw_weight: 0.3  # extra damping on the yaw term for the 1-marker case
+  # After global initialization, a lone known marker corrects x/y while retaining
+  # FAST-LIO/GICP yaw. Require independent same-ID frames to agree before fusion.
+  single_marker_tracking_enabled: true
+  single_marker_min_consistent: 3
+  single_marker_consistency_trans: 0.15  # [m] robust inlier radius
+  single_marker_history_sec: 2.0         # [s]
+
+# Freeze map->datum once trusted, then switch to estimating map->camera_init corrections
+# instead (anti-degeneracy: a single marker sighting can't tell datum error from
+# camera_init/GICP drift apart, but datum can't have drifted before the robot has moved,
+# so solving it early and freezing it removes the ambiguity for every later sighting).
+freeze:
+  min_multimarker_updates: 3  # freeze after this many accepted >=2-marker map->datum fits
+                              # (Rev.3 guarantees >=2 landmarks visible from the start point,
+                              # so this should trigger within the first few seconds)
+  max_wait_sec: 20.0          # freeze regardless after this long, even on single-marker-only fits

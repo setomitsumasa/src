@@ -1,0 +1,24 @@
+# ERC Phase 3 — measured body -> camera_link extrinsic (the ArUco-anchor accuracy ceiling, §6.4).
+#
+# `body`      = FAST-LIO output frame (the LiDAR/IMU body).
+# `camera_link` = RealSense body frame; realsense_from_lib then publishes
+#                 camera_link -> camera_color_optical_frame internally.
+#
+# So the full chain the anchor relies on is:
+#   map -> camera_init (map_anchor) -> body (FAST-LIO) -> camera_link (THIS) ->
+#   camera_color_optical_frame (realsense).
+#
+# MEASURE these on the real rig and replace the values. Translation [m] in the body
+# frame (x forward, y left, z up). Rotation roll/pitch/yaw [rad] (body -> camera_link).
+# A wrong extrinsic biases every ArUco correction, so this is worth measuring well.
+#
+# Current values are placeholders (all zero), not measurements. The launch prints a
+# warning until these are replaced. `camera_link` is the ROS x-forward camera body
+# frame; realsense_from_lib supplies the camera_link -> optical-frame rotation.
+body_to_camera_link:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  roll: 0.0
+  pitch: 0.0
+  yaw: 0.0

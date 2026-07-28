@@ -3,6 +3,13 @@
 # to the saved prior map (.pcd, in the map frame) and publishes a low-passed
 # map -> camera_init correction TF. Single authority: this node owns map->odom only;
 # FAST-LIO owns odom(camera_init)->body.
+#
+# Also fuses a second, independent correction source: once aruco_map_anchor.py has
+# frozen map->datum, it publishes map->camera_init candidates (>=2 known markers
+# simultaneously visible) on aruco_candidate_topic below -- useful precisely when GICP
+# itself is degenerate (flat/featureless terrain), since ArUco's failure modes are
+# unrelated to LiDAR geometry. Same jump-gate + low-pass as GICP (see max_trans_step/
+# max_rot_step above); this is a second INPUT, not a second TF authority.
 map_anchor:
   ros__parameters:
     # prior_map_path is normally overridden by the launch (resolved absolute path).
@@ -11,21 +18,26 @@ map_anchor:
     odom_frame: "camera_init"        # FAST-LIO world frame == odom role
     cloud_topic: "/cloud_registered" # FAST-LIO world-frame current scan
 
-    voxel_leaf: 0.3                  # [m] downsample leaf for both prior map and live source
-    accum_window_sec: 1.0            # [s] rolling window of live scans merged into the GICP source
+    voxel_leaf: 0.2 #0.3   # [m] downsample leaf for both prior map and live source
+    accum_window_sec: 1.5 #1.0       # [s] rolling window of live scans merged into the GICP source
 
     # GICP
     gicp_max_corr_dist: 1.0          # [m] correspondence cutoff
-    gicp_max_iter: 30
+    gicp_max_iter: 40 #30             # [iter] max GICP iterations per update
     update_period: 1.0               # [s] how often to re-run GICP (low rate = cheap on CPU)
 
     # Acceptance gates (reject bad matches / discontinuous jumps -> §6.4 safety valves)
-    fitness_max: 0.3                 # accept only if GICP mean-squared fitness < this
+    # Indoor accepted runs measured 0.006-0.047. Keep margin for sparse scans while
+    # rejecting the much poorer local minima that the old 0.3 threshold admitted.
+    fitness_max: 0.08
     max_trans_step: 1.0              # [m]   reject if a single correction jumps farther than this
-    max_rot_step: 0.5               # [rad] reject if a single correction rotates more than this
+    max_rot_step: 0.87 # 0.5               # [rad] reject if a single correction rotates more than this
 
     # Low-pass of the accepted correction (0..1; smaller = smoother, no snapping)
     lowpass_alpha: 0.3
+    # FAST-LIO world frames are gravity aligned. Prevent unconstrained GICP from
+    # inventing roll/pitch (Nav2 uses a planar costmap); xyz translation and yaw remain.
+    planar_correction: true
 
     # Initial guess for map->camera_init (start pose is roughly known, ERC §3.4).
     # Identity by default (FAST-LIO starts ~at the mapped start point).
@@ -34,3 +46,17 @@ map_anchor:
 
     # TF broadcast rate (kept steady even between GICP updates)
     tf_publish_rate: 20.0            # [Hz]
+
+    # ArUco camera_init candidate fusion (anti-degeneracy, see header comment above)
+    aruco_candidate_topic: "/erc/aruco_camera_init_candidate"
+    aruco_lowpass_alpha: 0.3         # separate from lowpass_alpha (GICP's own) -- tune independently
+    # Calibrated indoor arbitrary-start initialization measured <=0.062 m.
+    aruco_residual_max: 0.15        # [m] reject inconsistent landmark candidates
+
+    # false for same-start/localize.launch.py. aruco_localize.launch.py overrides this
+    # to true by default: GICP stays disabled until several consistent 2+ tag candidates
+    # provide an arbitrary-start global pose.
+    wait_for_aruco_initialization: false
+    aruco_init_min_candidates: 3
+    aruco_init_consistency_trans: 0.5  # [m] candidate-to-candidate agreement
+    aruco_init_consistency_rot: 0.25   # [rad]

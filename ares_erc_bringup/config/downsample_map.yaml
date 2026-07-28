@@ -1,0 +1,11 @@
+# ERC — downsample_map parameters. Edit this file, then just run:
+#   ros2 run ares_erc_bringup downsample_map
+# (no arguments needed -- keeps the field-use command short and repeatable outdoors.)
+#
+# Promotes a fresh FAST-LIO scan to the canonical prior map, voxel-decimated so RViz's
+# /erc/prior_map display doesn't OOM (GICP re-downsamples to its own voxel_leaf regardless,
+# so this does not cost localization accuracy). See maps/README.md.
+
+input_pcd: ~/real_ws/src/FAST_LIO_ROS2/PCD/scans.pcd
+output_pcd: ~/real_ws/src/ares_erc_bringup/maps/prior_map.pcd
+leaf_size: 0.05   # [m] voxel size: smaller = more detail + more points (heavier RViz)

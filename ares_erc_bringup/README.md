@@ -151,10 +151,17 @@ ros2 topic echo /erc/localization_fitness      # GICP fitness (lower = better lo
 ros2 run tf2_tools view_frames                 # confirm map->camera_init has ONE publisher
 ```
 
+Do not compare `map -> camera_init` directly between separate launches as if it were
+the rover pose. `camera_init` is FAST-LIO's session-local world and its unobservable yaw
+gauge can change on restart. Use the composed `map -> body` (or `/erc/odometry`) for
+cross-session accuracy tests and Nav2.
+
 **Tuning** (`config/localization.yaml`): `voxel_leaf` (map/scan downsample), `fitness_max`
 (reject bad matches), `max_trans_step`/`max_rot_step` (reject jumps), `lowpass_alpha`
 (smaller = smoother), `init_xyz`/`init_yaw` (initial guess if you don't start exactly at
-the mapped start point).
+the mapped start point). `planar_correction: true` projects GICP rotation to yaw because
+both FAST-LIO world frames are gravity aligned; this prevents a locally-good 3-D fit
+from tilting the map and breaking Nav2's planar costmaps.
 
 **Offline self-test (no hardware):** feed the prior map back in as `/cloud_registered` and
 start the anchor with a deliberate offset — GICP must pull it to ~0 with ~0 fitness:
@@ -194,6 +201,124 @@ ros2 topic hz /erc/odometry              # ~30 Hz
 Verified offline with a synthetic circular `map->body` (r=2 m, ω=0.4 rad/s): odometry
 reported forward speed 0.80 m/s and yaw rate 0.40 rad/s (== r·ω and ω), trajectory
 accumulated correctly.
+
+## Phase 3 — ArUco global initialization and drift correction
+
+`aruco_localize.launch.py` adds global initialization to the local GICP stack. The
+detector publishes every marker in a frame, the ERC adapter normalizes the shared
+detector's mixed optical/camera convention, and publishes one TF per ID
+(`aruco_marker_51`, `aruco_marker_52`, ...). With two or more well-separated known
+markers, `aruco_map_anchor.py` computes an absolute `map→camera_init` candidate. Three
+consistent candidates initialize `map_anchor`; only then does local GICP refinement
+start. This allows a run to start away from the pose used to scan the prior map.
+
+The fixed `map→datum` transform must already be calibrated for arbitrary-start
+localization (`datum.calibrated: true`). During a run, **`aruco_map_anchor` owns
+`map→datum`** and `map_anchor` remains the only publisher of `map→camera_init`; ArUco and
+GICP are two correction inputs, not competing TF publishers.
+
+Fill in before a live run:
+- `config/aruco_anchors_erc.yaml` — known markers `id → datum (x,y,z)`, gates, update tuning.
+- `config/extrinsics_erc.yaml` — measured `body → camera_link` (the accuracy ceiling, §6.4).
+- marker size / dictionary: match the real tag. The ERC launch defaults to the Rev.3
+  values used here: `0.150 m`, `5X5_100`.
+
+**Offline (no camera / no LiDAR) — watch the correction converge:**
+```bash
+ros2 launch ares_erc_bringup aruco_anchor_demo.launch.py     # true 30 deg / 0.2,-0.1 by default
+#   true_yaw_deg:=45.0  true_xy:="[0.3, 0.2]"                 # optional ground truth
+```
+`aruco_fake_detections` injects synthetic detections; in RViz (Fixed Frame `map`) the yellow
+known-marker cubes (datum) slide onto the blue observed spheres (map) as `map→datum` converges.
+Verified headless: from a 0° seed it reached yaw 29.6° / (0.197, −0.099) with residual ≈ 6e-16.
+
+**Offline arbitrary-start self-test (no camera / no LiDAR):**
+```bash
+ros2 launch ares_erc_bringup aruco_global_init_demo.launch.py
+ros2 run tf2_ros tf2_echo map camera_init
+# expected: x≈1.0 m, y≈2.0 m, yaw≈10 deg
+ros2 topic echo /erc/localization_initialized --once
+# expected: data: true
+```
+
+**Live (D435i connected):**
+```bash
+ros2 launch ares_erc_bringup aruco_localize.launch.py
+# If fewer than two known tags are available and the run starts at the mapped pose:
+# ros2 launch ares_erc_bringup aruco_localize.launch.py global_init:=false
+```
+With the default `global_init:=true`, GICP intentionally waits until a trustworthy
+multi-marker absolute pose is accepted. A single marker cannot initialize planar
+position and yaw robustly. After initialization, however, one known marker supplies an
+x/y-only correction while the current FAST-LIO/GICP yaw is preserved. Three independent
+same-ID camera frames must agree before that correction is fused. Two or more visible
+markers continue to supply the full x/y/yaw correction, and zero visible markers falls
+back to FAST-LIO + GICP.
+
+**Check:**
+```bash
+ros2 topic echo /aruco_detections --once       # one message should contain both IDs
+ros2 run tf2_ros tf2_echo camera_color_optical_frame aruco_marker_51
+ros2 run tf2_ros tf2_echo camera_color_optical_frame aruco_marker_52
+ros2 topic echo /erc/localization_initialized --once
+ros2 run tf2_ros tf2_echo map camera_init
+ros2 topic echo /erc/localization_fitness
+```
+
+The desired tag-frame axes are the solvePnP object axes: viewed from the printed face,
+`+x` points right, `+y` up, and `+z` toward the camera. Detection range, fit residual,
+two-tag baseline, 3-D tag-spacing consistency, jump, and temporal-consistency gates
+reject weak solutions. The 3-D spacing check is independent of robot pose and rigid
+camera-LiDAR extrinsics, so bad hand-measured coordinates or marker scale cannot silently
+become a global correction. Once initialized, losing the tags does not erase the pose;
+GICP continues local refinement. Runtime behavior is therefore `0 tags = LiDAR/IMU`,
+`1 known tag = translation aid`, and `2+ known tags = full planar landmark aid`.
+
+### Survey indoor tags into the prior map (recommended calibration)
+
+Do not derive localization landmark coordinates by measuring from an arbitrarily
+placed LiDAR or by mixing prior-map and datum axes. Start the rig at the pose where the
+prior map was scanned (the pose where GICP is already known to overlap well), keep the
+rig and tags stationary, and run:
+
+```bash
+ros2 launch ares_erc_bringup aruco_calibrate.launch.py
+```
+
+The calibrator accepts samples only while localization is initialized and GICP fitness
+is at most `0.02`. After 15 seconds it robustly rejects position outliers and writes:
+
+```text
+/tmp/aruco_anchors_measured.yaml
+```
+
+Inspect the per-ID `raw_samples`, `kept_samples`, `radial_mad_m`, and
+`max_kept_residual_m`. Do not copy it into runtime config if either tag has fewer than
+30 retained samples or centimetre-scale residuals. A safe first inspection is:
+
+```bash
+sed -n '1,200p' /tmp/aruco_anchors_measured.yaml
+```
+
+The generated file has `coordinate_frame: map`; pass it without overwriting the
+checked-in fallback:
+
+```bash
+ros2 launch ares_erc_bringup aruco_localize.launch.py \
+  anchors_file:=/tmp/aruco_anchors_measured.yaml
+```
+
+Then move to a substantially different starting pose, keep both tags visible, and
+verify `/erc/localization_initialized`, `map -> camera_init`, and the grey/red cloud
+overlap. The calibration is valid only while the camera-to-LiDAR mounting is unchanged.
+
+`localize.launch.py` by itself is the LiDAR-only, local-registration mode. It assumes
+the initial guess in `localization.yaml` is already close enough for GICP.
+`aruco_localize.launch.py` is the intended ERC arbitrary-start mode.
+
+The complete implemented node/topic graph, TF ownership, tag-count state transitions,
+and correction rejection path are documented in
+[`doc/erc_localization_graph.md`](../doc/erc_localization_graph.md).
 
 ## Troubleshooting
 - **`bind failed` / `Init lds lidar fail!`** → network step 0 not done (NIC IP ≠ host IP, or sensor unreachable).
