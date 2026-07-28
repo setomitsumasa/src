@@ -316,9 +316,10 @@ overlap. The calibration is valid only while the camera-to-LiDAR mounting is unc
 the initial guess in `localization.yaml` is already close enough for GICP.
 `aruco_localize.launch.py` is the intended ERC arbitrary-start mode.
 
-The complete implemented node/topic graph, TF ownership, tag-count state transitions,
-and correction rejection path are documented in
-[`doc/erc_localization_graph.md`](../doc/erc_localization_graph.md).
+実装済みのノード・topic構成、TFの発行責任、タグ数による状態遷移、補正候補の
+検査・棄却経路、各パッケージの役割は、次の日本語文書にまとめています。
+
+- [`ERC LiDAR–RealSense 自己位置推定システム`](../doc/erc_localization_graph.md)
 
 ## Troubleshooting
 - **`bind failed` / `Init lds lidar fail!`** → network step 0 not done (NIC IP ≠ host IP, or sensor unreachable).

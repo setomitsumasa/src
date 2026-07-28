@@ -5,17 +5,18 @@
 
 ## まず何を読むべきか
 
-1. [ノード・トピック通信グラフ](./node_topic_graph_README.md)
-2. [ares_nav2](./ares_nav2_README.md)
-3. [ares_sensor](./ares_sensor_README.md)
-4. [uart_control](./uart_control_README.md)
-5. [rover_controller](./rover_controller_README.md)
-6. [realsense_from_lib](./realsense_from_lib_README.md)
-7. [aruco_opencv](./aruco_opencv_README.md)
-8. [YOLO_detection_v2](./YOLO_detection_v2_README.md)
-9. [livox_ros_driver2](./livox_ros_driver2_README.md)
-10. [livox_to_pointcloud2](./livox_to_pointcloud2_README.md)
-11. [pointcloud_to_laserscan](./pointcloud_to_laserscan_README.md)
+1. [ERC LiDAR–RealSense 自己位置推定システム](./erc_localization_graph.md)
+2. [ノード・トピック通信グラフ](./node_topic_graph_README.md)
+3. [ares_nav2](./ares_nav2_README.md)
+4. [ares_sensor](./ares_sensor_README.md)
+5. [uart_control](./uart_control_README.md)
+6. [rover_controller](./rover_controller_README.md)
+7. [realsense_from_lib](./realsense_from_lib_README.md)
+8. [aruco_opencv](./aruco_opencv_README.md)
+9. [YOLO_detection_v2](./YOLO_detection_v2_README.md)
+10. [livox_ros_driver2](./livox_ros_driver2_README.md)
+11. [livox_to_pointcloud2](./livox_to_pointcloud2_README.md)
+12. [pointcloud_to_laserscan](./pointcloud_to_laserscan_README.md)
 
 ## 通信の全体像を先に見たい場合
 
@@ -28,6 +29,7 @@
 
 | パッケージ | 役割 |
 | --- | --- |
+| [`ares_erc_bringup`](./erc_localization_graph.md) | ERC向けMid-360・FAST-LIO・PriorMap・RealSense・ArUco自己位置推定の統合 |
 | [ares_nav2](./ares_nav2_README.md) | Nav2 起動、GPS waypoint 管理、ArUco/YOLO 接近フェーズ制御 |
 | [ares_sensor](./ares_sensor_README.md) | UART の生データを IMU/GPS/TF に変換 |
 | [uart_control](./uart_control_README.md) | UART 受信と UART 送信の双方向ブリッジ |
